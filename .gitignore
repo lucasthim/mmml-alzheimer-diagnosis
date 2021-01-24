@@ -128,4 +128,7 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# Custom
 /src/freesurfer-Linux-centos6_x86_64-stable-pub-v6.0.0.tar.gz
+.vscode/
+
