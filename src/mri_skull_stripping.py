@@ -9,9 +9,10 @@ import numpy as np
 import nibabel as nib
 from deepbrain import Extractor
 from utils.skull_stripping_ants.s3 import *
+from deepbrain_skull_strip import *
 
 #%%
-arg_parser = argparse.ArgumentParser(description='Executes SKull Stripping to MR images.')
+arg_parser = argparse.ArgumentParser(description='Executes Skull Stripping to MR images.')
 
 arg_parser.add_argument('-t','--type',
                     dest='type',
@@ -49,11 +50,11 @@ def execute_skull_stripping_process(input_path,output_path,skull_stripping_type 
         print(f"Processing image ({ii+1}/{len(images_to_process)}):",image_path)
         
         if skull_stripping_type == 'ANTs':
-            apply_ants_skull_stripping_to_mri(image_path,output_path)
+            apply_s3_skull_stripping_to_mri(image_path,output_path)
             print("Deleting useless images (masks, gm,wm, etc)...\n")
             delete_useless_images(output_path)
         elif skull_stripping_type == 'DeepBrain':
-            apply_deep_brain_skull_stripping_to_mri(image_path,output_path)
+            apply_deep_brain_skull_stripping_to_mri(image_path.as_posix(),output_path)
         else:
             raise('Please select a valid skull stripping process.')
 
@@ -61,7 +62,7 @@ def execute_skull_stripping_process(input_path,output_path,skull_stripping_type 
     print('-------------------------------------------------------------')
     print('-------------------------------------------------------------')
     print('-------------------------------------------------------------')
-    print('All images processed! Process took %.2f min) \n' % total_time)
+    print('All images processed! Process took %.2f min' % total_time)
     print('-------------------------------------------------------------')
     print('-------------------------------------------------------------')
     print('-------------------------------------------------------------')
@@ -100,7 +101,7 @@ def delete_useless_images(input_dir):
         for img in useless_images:
             os.remove(img)
 
-def apply_ants_skull_stripping_to_mri(input_path,output_path):
+def apply_s3_skull_stripping_to_mri(input_path,output_path):
     if not os.path.exists(output_path):
         print("Creating output path... \n")
         os.makedirs(output_path)
@@ -112,36 +113,15 @@ def apply_ants_skull_stripping_to_mri(input_path,output_path):
     print('Done with skull stripping! Process took %.2f min) \n' % total_time)
 
 def apply_deep_brain_skull_stripping_to_mri(input_path,output_path,probability = 0.5):
-    global_input = input_path
+
     if not os.path.exists(output_path):
         print("Creating output path... \n")
         os.makedirs(output_path)
     
     start = time.time()
-    # load img
-    # TODO: maybe replace with antspy because it is faster
-    img = nib.load(input_path).get_fdata()
-
-    # execute brain extraction
-    ext = Extractor()
-    print("Running DeepBrain Skull Stripping...")
-    prob = ext.run(img) 
-    mask = prob > probability
-    
-    # apply mask
-    final_img = img.copy()
-    final_img[~mask] = 0
-    final_img_name = os.path.splitext(os.path.splitext(os.path.basename(input_path))[0])[0]
-    output_file_path = output_path + '/' + final_img_name + "_masked_deepbrain.nii.gz"
-    
-    final_img_nii = nib.Nifti1Image(final_img, np.eye(4))
-    final_img_nii.header.get_xyzt_units()
-    final_img_nii.to_filename(output_file_path)
-    print('Skull stripped image saved as :',output_file_path)
-
+    deep_brain_skull_stripping(input_path = input_path,output_folder = output_path,probability = probability)
     total_time = (time.time() - start)
     print('Done with skull stripping! Process took %.2f sec) \n' % total_time)
-    # return final_img
 
 def set_env_variables():
     print("Setting ANTs and NiftyReg environment variables...\n")
