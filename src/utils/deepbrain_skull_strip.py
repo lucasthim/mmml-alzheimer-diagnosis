@@ -18,7 +18,7 @@ def deep_brain_skull_stripping(input_path:str,output_path:str = None,input_img:n
 
     - input_path: Path where image to be processed is located.
 
-    - output_path: Path to save the processed image.
+    - output_path: Path to save the processed image. If not provided, function returns the image object.
 
     - input_image: Image file in numpy array format. If provided, function will use it instead of input_path
 
@@ -44,13 +44,16 @@ def deep_brain_skull_stripping(input_path:str,output_path:str = None,input_img:n
     final_img[~mask] = 0
     print('DeepBrain skull stripping finished.')
 
+    final_img_nii = ants.from_numpy(final_img)
+    # final_img_nii = nib.Nifti1Image(final_img, np.eye(4))   
+    # final_img_nii.header.get_xyzt_units()
     if not output_path: 
-        return final_img
+        return final_img_nii
+        
     final_img_name = os.path.splitext(os.path.splitext(os.path.basename(input_path))[0])[0]
     output_file_path = output_path + '/' + final_img_name + "_masked_deepbrain.nii.gz"
-    final_img_nii = nib.Nifti1Image(final_img, np.eye(4))
-    final_img_nii.header.get_xyzt_units()
-    final_img_nii.to_filename(output_file_path)
+    # final_img_nii.to_filename(output_file_path)
+    final_img_nii.to_file(output_file_path)
 
     print('Skull stripped image saved as :',output_file_path)
     # return final_img
