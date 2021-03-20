@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
-
+import numpy as np
+import ants
 
 def list_available_images(input_dir):
     
@@ -35,6 +36,15 @@ def delete_useless_images(input_dir):
             or "mask." in x ]
         for img in useless_images:
             os.remove(img)
+
+def save_image_file(image,path):
+    if type(image) is np.ndarray:
+        pass
+    else:
+        pass
+
+def load_image_file(path):
+    pass
 
 def set_env_variables():
     print("Setting ANTs and NiftyReg environment variables...\n")
