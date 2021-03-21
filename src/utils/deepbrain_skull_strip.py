@@ -8,7 +8,8 @@ import ants
 from deepbrain import Extractor
 
 
-def deep_brain_skull_stripping(input_path:str,output_path:str = None,input_img:np.array = None,probability = 0.5):
+def deep_brain_skull_stripping(image, probability = 0.5, output_as_array=True):
+    
     '''
     Executes Skull Stripping process with the DeepBrain Extraction tool.
 
@@ -16,44 +17,25 @@ def deep_brain_skull_stripping(input_path:str,output_path:str = None,input_img:n
 
     Params:
 
-    - input_path: Path where image to be processed is located.
-
-    - output_path: Path to save the processed image. If not provided, function returns the image object.
-
-    - input_image: Image file in numpy array format. If provided, function will use it instead of input_path
+    - image: MRI object to strip.
 
     - probability: Probability to make extraction mask binary and apply to image.
 
+    - output_as_array: Flag to return image as a numpy array and avoid unecessary conversion of objects.
     '''
-
-    if input_img is not None:
-        img = input_img
-    elif input_path is not None:
-        img = ants.image_read(input_path).numpy()
-    else:
-        raise("Please a numpy array as the input image and the input path.")
     
     # execute brain extraction
     ext = Extractor()
     print("Running DeepBrain Skull Stripping...")
-    prob = ext.run(img) 
+    prob = ext.run(image) 
     mask = prob > probability
     
     # apply mask
-    final_img = img.copy()
+    final_img = image.copy()
     final_img[~mask] = 0
     print('DeepBrain skull stripping finished.')
 
-    final_img_nii = ants.from_numpy(final_img)
-    # final_img_nii = nib.Nifti1Image(final_img, np.eye(4))   
-    # final_img_nii.header.get_xyzt_units()
-    if not output_path: 
-        return final_img_nii
-        
-    final_img_name = os.path.splitext(os.path.splitext(os.path.basename(input_path))[0])[0]
-    output_file_path = output_path + '/' + final_img_name + "_masked_deepbrain.nii.gz"
-    # final_img_nii.to_filename(output_file_path)
-    final_img_nii.to_file(output_file_path)
-
-    print('Skull stripped image saved as :',output_file_path)
-    # return final_img
+    if output_as_array:
+        return final_img
+    
+    return ants.from_numpy(final_img,direction=image.direction)

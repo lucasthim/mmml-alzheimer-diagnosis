@@ -10,10 +10,15 @@ import ants
 from deepbrain import Extractor
 
 sys.path.append("utils")
+import tensorflow as tf
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and errors from TF. Need to use it carefully
+
 from deepbrain_skull_strip import deep_brain_skull_stripping
-from base_mri import list_available_images,delete_useless_images,set_env_variables
+from base_mri import list_available_images, delete_useless_images, set_env_variables, load_mri, save_mri, create_file_name_from_path
 from antspy_registration import register_image_with_atlas
 from crop_mri import crop_mri_at_center
+from standardize_mri import clip_and_normalize_mri
 
 arg_parser = argparse.ArgumentParser(description='Executes Skull Stripping to MR images.')
 
@@ -47,7 +52,7 @@ def execute_preprocessing(input_path,output_path):
 
     images_to_process,_,_ = list_available_images(input_path)
     print('------------------------------------------------------------------------------------------------------------------------')
-    print(f"Starting pre-processing (Registration + Skull Stripping + Cropping) for {len(images_to_process)} images. This might take a while... =)")
+    print(f"Starting pre-processing (Standardizing + Registration + Skull Stripping + Cropping) for {len(images_to_process)} images. This might take a while... =)")
     print('------------------------------------------------------------------------------------------------------------------------')
 
     if not os.path.exists(output_path):
@@ -55,23 +60,26 @@ def execute_preprocessing(input_path,output_path):
         os.makedirs(output_path)
 
     for ii,image_path in enumerate(images_to_process):
-        print('\n-------------------------------------------------------------------------------------------------------------------')
-        print(f"Processing image ({ii+1}/{len(images_to_process)}):",image_path)
         
         start_img = time.time()
+        input_image = load_mri(path=image_path.as_posix())
+        print('\n-------------------------------------------------------------------------------------------------------------------')
+        print(f"Processing image ({ii+1}/{len(images_to_process)}):",image_path)
 
-        # TODO: Apply Standardization
-        # print("Standardizing image based on Atlas...")
-        
+        print("Standardizing image based on Atlas...")
+        standardized_image = clip_and_normalize_mri(input_image)
+
         print("Registering image to Atlas...")
-        image_to_process = register_image_with_atlas(input_path=image_path.as_posix(),output_path = None,input_img=None)
+        registered_image = register_image_with_atlas(standardized_image)
         
         print("Stripping skull from image...")
-        stripped_image = deep_brain_skull_stripping(input_path = input_path, output_path = None, input_img=image_to_process.numpy(), probability = 0.5)
+        stripped_image = deep_brain_skull_stripping(image=registered_image.numpy(), probability = 0.5,output_as_array=True)
         
         print("Cropping image with bounding box 100x100x100...")
-        crop_mri_at_center(input_path = input_path, output_path = output_path, image=stripped_image)
+        cropped_image = crop_mri_at_center(image=stripped_image)
 
+        print("Saving final image...")
+        save_mri(image=cropped_image, output_path = output_path,name=create_file_name_from_path(image_path),file_format='.npz')
         # TODO: create method to save image and remove saving logic from other methods. method will be flexible and accept ANTsPyImage, numpy and nibabel formats. 
         # It will save image as .nii.gz or as numpy matrix. Whatever is smaller in size 
         # TODO: Create message to print where the image was saved
