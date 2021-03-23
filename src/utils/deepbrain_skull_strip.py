@@ -7,8 +7,7 @@ import nibabel as nib
 import ants
 from deepbrain import Extractor
 
-
-def deep_brain_skull_stripping(image, probability = 0.5, output_as_array=True):
+def deep_brain_skull_stripping(image, probability = 0.5, output_as_array=True,image_direction=None,get_mask=False):
     
     '''
     Executes Skull Stripping process with the DeepBrain Extraction tool.
@@ -22,6 +21,10 @@ def deep_brain_skull_stripping(image, probability = 0.5, output_as_array=True):
     - probability: Probability to make extraction mask binary and apply to image.
 
     - output_as_array: Flag to return image as a numpy array and avoid unecessary conversion of objects.
+    
+    - image_direction: direction properties from ANTsImage object. This will correctly orient the sagittal, coronal and axias views of the MRI.
+    
+    - get_mask: Flag to return the skull stripping mask instead of the stripped image.
     '''
     
     # execute brain extraction
@@ -29,13 +32,22 @@ def deep_brain_skull_stripping(image, probability = 0.5, output_as_array=True):
     print("Running DeepBrain Skull Stripping...")
     prob = ext.run(image) 
     mask = prob > probability
+    print('DeepBrain skull stripping finished.')
+    
+    if get_mask:
+        mask[mask] = 1
+        mask[~mask] = 0
+        return mask
     
     # apply mask
     final_img = image.copy()
     final_img[~mask] = 0
-    print('DeepBrain skull stripping finished.')
 
     if output_as_array:
         return final_img
     
-    return ants.from_numpy(final_img,direction=image.direction)
+    if image_direction is not None:
+        return ants.from_numpy(final_img,direction=image_direction)
+
+    return ants.from_numpy(final_img)
+    
