@@ -80,9 +80,6 @@ def execute_preprocessing(input_path,output_path):
 
         print("Saving final image...")
         save_mri(image=cropped_image, output_path = output_path,name=create_file_name_from_path(image_path),file_format='.npz')
-        # TODO: create method to save image and remove saving logic from other methods. method will be flexible and accept ANTsPyImage, numpy and nibabel formats. 
-        # It will save image as .nii.gz or as numpy matrix. Whatever is smaller in size 
-        # TODO: Create message to print where the image was saved
 
         total_time_img = (time.time() - start_img)
         print(f'Process for image ({ii+1}/{len(images_to_process)}) took %.2f sec) \n' % total_time_img)

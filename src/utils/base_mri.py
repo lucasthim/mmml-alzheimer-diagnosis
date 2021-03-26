@@ -71,10 +71,15 @@ def save_mri(image:Union[np.ndarray, ants.ANTsImage],name:str = None,output_path
         image.to_file(output_file_path)
     print("Image saved at:",output_file_path)
 
-def load_mri(path:str) -> ants.ANTsImage:
+def load_mri(path:str,as_ants=False):
     '''
-    Load image from path as an ANTsImage
+    Load image from path as an ANTsImage or numpy compressed array.
     '''
+    
+    if path.endswith(".npz"):
+        img= np.load(path)['arr_0']
+        if as_ants: img = ants.from_numpy(img)
+        return img
     return ants.image_read(path)
 
 def set_env_variables():
