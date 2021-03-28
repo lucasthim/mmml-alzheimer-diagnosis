@@ -20,33 +20,26 @@ from antspy_registration import register_image_with_atlas
 from mri_crop import crop_mri_at_center
 from mri_standardize import clip_and_normalize_mri
 
-arg_parser = argparse.ArgumentParser(description='Executes Skull Stripping to MR images.')
-
-
-arg_parser.add_argument('-i','--input',
-                    metavar='input',
-                    type=str,
-                    required=True,
-                    help='Input directory of the nifti files')
-
-arg_parser.add_argument('-o','--output',
-                    metavar='output',
-                    type=str,
-                    required=True,
-                    help='Output directory of the nifti files')
-
-arg_parser.add_argument('-c','--bbox',
-                    dest='bbox',
-                    type=list,
-                    default=[100,100,100],
-                    required=False,
-                    help='Bounding box to crop brain image')
-
-args = arg_parser.parse_args()
-
-
 def execute_preprocessing(input_path,output_path):
+    
+    '''
+    MRI Preprocessing pipeline. 
+    
+    Main steps:
+    
+    - MRI standardization
+    
+    - MRI Registration
+    
+    - MRI Skull Stripping
+    
+    - MRI Cropping at 100x100x100
 
+    Example:
+
+        python mri_preprocessing.py --input "/home/lucasthim1/mmml-alzheimer-diagnosis/data/raw/ADNI" --output "/home/lucasthim1/mmml-alzheimer-diagnosis/data/preprocessed/20210328"
+    '''   
+    
     set_env_variables()
     start = time.time()
 
@@ -93,31 +86,37 @@ def execute_preprocessing(input_path,output_path):
     print('-------------------------------------------------------------')
     print('-------------------------------------------------------------')
 
+
 def main():
-    
-    '''
-    MRI Preprocessing pipeline. 
-    
-    Main steps:
-    
-    - MRI standardization
-    
-    - MRI Registration
-    
-    - MRI Skull Stripping
-    
-    - MRI Cropping at 100x100x100
-
-    Example:
-
-        python mri_preprocessing.py --input "/home/lucasthim1/mmml-alzheimer-diagnosis/data/raw/ADNI" --output "/home/lucasthim1/mmml-alzheimer-diagnosis/data/preprocessed/20210327"
-
-    '''    
+     
     
     execute_preprocessing(input_path=args.input,output_path=args.output)
 
+
+arg_parser = argparse.ArgumentParser(description='Preprocess MR images.')
+
+
+arg_parser.add_argument('-i','--input',
+                    metavar='input',
+                    type=str,
+                    required=True,
+                    help='Input directory of the nifti files')
+
+arg_parser.add_argument('-o','--output',
+                    metavar='output',
+                    type=str,
+                    required=True,
+                    help='Output directory of the nifti files')
+
+arg_parser.add_argument('-c','--bbox',
+                    dest='bbox',
+                    type=list,
+                    default=[100,100,100],
+                    required=False,
+                    help='Bounding box to crop brain image')
+
+args = arg_parser.parse_args()
+
+
 if __name__ == '__main__':
     main()    
-import zipfile
-with zipfile.ZipFile(path_to_zip_file, 'r') as zip_ref:
-    zip_ref.extractall(directory_to_extract_to)
