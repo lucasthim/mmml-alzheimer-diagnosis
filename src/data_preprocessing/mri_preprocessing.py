@@ -9,7 +9,7 @@ import nibabel as nib
 import ants
 from deepbrain import Extractor
 
-sys.path.append("utils")
+sys.path.append("./../utils")
 import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and errors from TF. Need to use it carefully
@@ -17,8 +17,8 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and er
 from deepbrain_skull_strip import deep_brain_skull_stripping
 from base_mri import list_available_images, delete_useless_images, set_env_variables, load_mri, save_mri, create_file_name_from_path
 from antspy_registration import register_image_with_atlas
-from crop_mri import crop_mri_at_center
-from standardize_mri import clip_and_normalize_mri
+from mri_crop import crop_mri_at_center
+from mri_standardize import clip_and_normalize_mri
 
 arg_parser = argparse.ArgumentParser(description='Executes Skull Stripping to MR images.')
 
@@ -70,20 +70,19 @@ def execute_preprocessing(input_path,output_path):
         standardized_image = clip_and_normalize_mri(input_image)
 
         print("Registering image to Atlas...")
-        registered_image = register_image_with_atlas(standardized_image)
+        registered_image:ants.ANTsImage = register_image_with_atlas(standardized_image)
         
         print("Stripping skull from image...")
-        stripped_image = deep_brain_skull_stripping(image=registered_image.numpy(), probability = 0.5,output_as_array=True)
+        stripped_image:ants.ANTsImage = deep_brain_skull_stripping(image=registered_image, probability = 0.5,output_as_array=False)
         
         print("Cropping image with bounding box 100x100x100...")
-        cropped_image = crop_mri_at_center(image=stripped_image)
+        cropped_image:ants.ANTsImage = crop_mri_at_center(image=stripped_image)
 
         print("Saving final image...")
-        save_mri(image=cropped_image, output_path = output_path,name=create_file_name_from_path(image_path),file_format='.npz')
+        save_mri(image=cropped_image, output_path = output_path,name=create_file_name_from_path(image_path),file_format='.nii.gz')
 
         total_time_img = (time.time() - start_img)
         print(f'Process for image ({ii+1}/{len(images_to_process)}) took %.2f sec) \n' % total_time_img)
-
 
     total_time = (time.time() - start) / 60.
     print('-------------------------------------------------------------')
@@ -97,14 +96,21 @@ def execute_preprocessing(input_path,output_path):
 def main():
     
     '''
-    Execute Skull Stripping
+    MRI Preprocessing pipeline. 
+    
+    Main steps:
+    
+    - MRI standardization
+    
+    - MRI Registration
+    
+    - MRI Skull Stripping
+    
+    - MRI Cropping at 100x100x100
 
     Example:
-        python mri_preprocessing.py --input "/home/lucasthim1/alzheimer_data/raw_mri/ADNI/" --output "/home/lucasthim1/alzheimer_data/processed_mri_deepbrain/"
 
-        python mri_preprocessing.py --input "/home/lucasthim1/alzheimer_data/test/002_S_4270" --output "/home/lucasthim1/alzheimer_data/test/"
-
-        python mri_preprocessing.py --input "/home/lucasthim1/alzheimer_data/raw_mri/ADNI" --output "/home/lucasthim1/alzheimer_data/processed_mri_deepbrain/"
+        python mri_preprocessing.py --input "/home/lucasthim1/mmml-alzheimer-diagnosis/data/raw/ADNI" --output "/home/lucasthim1/mmml-alzheimer-diagnosis/data/preprocessed/20210327"
 
     '''    
     
@@ -112,3 +118,6 @@ def main():
 
 if __name__ == '__main__':
     main()    
+import zipfile
+with zipfile.ZipFile(path_to_zip_file, 'r') as zip_ref:
+    zip_ref.extractall(directory_to_extract_to)

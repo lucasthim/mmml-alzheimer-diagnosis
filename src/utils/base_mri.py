@@ -6,7 +6,7 @@ import numpy as np
 import ants
 
 def list_available_images(input_dir,file_format = '.nii'):
-    
+
     '''
     List full path to available images.
     '''
@@ -90,7 +90,7 @@ def save_mri(image:Union[np.ndarray, ants.ANTsImage],name:str = None,output_path
         if type(image) is not np.ndarray: image = image.numpy()
         np.savez_compressed(output_file_path ,image)
         # image = ants.from_numpy(image)
-    elif file_format == 'nii.gz':
+    elif file_format == '.nii.gz':
         if type(image) is not ants.ANTsImage: image = ants.from_numpy(image) 
         image.to_file(output_file_path)
     print("Image saved at:",output_file_path)
