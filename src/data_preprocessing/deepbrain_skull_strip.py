@@ -15,20 +15,23 @@ def deep_brain_skull_stripping(image: ants.ANTsImage, probability = 0.5, output_
 
     DeepBrain uses a 3D Unet to strip the skulls from patients.
 
-    Params:
+    Parameters
+    ----------
+    image: MRI object to strip.
 
-    - image: MRI object to strip.
+    probability: Probability to make extraction mask binary and apply to image.
 
-    - probability: Probability to make extraction mask binary and apply to image.
-
-    - output_as_array: Flag to return image as a numpy array and avoid unecessary conversion of objects.
+    output_as_array: Flag to return image as a numpy array and avoid unecessary conversion of objects.
     
-    - image_direction: direction properties from ANTsImage object. This will correctly orient the sagittal, coronal and axias views of the MRI.
+    image_direction: direction properties from ANTsImage object. This will correctly orient the sagittal, coronal and axias views of the MRI.
     
-    - get_mask: Flag to return the skull stripping mask instead of the stripped image.
-    
+    get_mask: Flag to return the skull stripping mask instead of the stripped image.
+        
+    Returns
+    ----------
+    final_img: skull stripped image in ANTsImage format.
     '''
-    
+
     if type(image) is ants.ANTsImage:
         image_direction = image.direction
         image = image.numpy()

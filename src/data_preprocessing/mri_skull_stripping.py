@@ -12,7 +12,6 @@ from utils.skull_stripping_ants.s3 import *
 from deepbrain_skull_strip import *
 from base_mri import list_available_images,delete_useless_images,set_env_variables
 
-#%%
 arg_parser = argparse.ArgumentParser(description='Executes Skull Stripping to MR images.')
 
 arg_parser.add_argument('-t','--type',
@@ -34,10 +33,20 @@ arg_parser.add_argument('-o','--output',
                     help='Output directory of the nifti files')
 args = arg_parser.parse_args()
 
-#%%
 
 def execute_skull_stripping_process(input_path,output_path,skull_stripping_type = 'ANTs'):
     
+    '''
+    Execute Skull Stripping in MRI
+
+    Example:
+        python mri_skull_stripping.py --type "DeepBrain" --input "/home/lucasthim1/alzheimer_data/raw_mri/ADNI/" --output "/home/lucasthim1/alzheimer_data/processed_mri_deepbrain/"
+
+        python mri_skull_stripping.py --type "DeepBrain" --input "/home/lucasthim1/alzheimer_data/test/002_S_4270" --output "/home/lucasthim1/alzheimer_data/test/"
+        
+        python mri_skull_stripping.py --type "DeepBrain" --input "/home/lucasthim1/alzheimer_data/raw_mri/ADNI" --output "/home/lucasthim1/alzheimer_data/processed_mri_deepbrain/"
+
+    '''    
     set_env_variables()
     start = time.time()
 
@@ -80,7 +89,20 @@ def apply_s3_skull_stripping_to_mri(input_path,output_path):
     print('Done with skull stripping! Process took %.2f min) \n' % total_time)
 
 def apply_deep_brain_skull_stripping_to_mri(input_path,output_path,probability = 0.5):
-
+    '''
+    
+    Apply Skull Stripping with DeepBrain tool.
+    
+     Parameters
+    ----------
+    
+    input_path: path where raw MRI is located.
+    
+    output_path: path to save preprocessed MRI.
+    
+    probability: probability threshold to extract brain from the MRI.
+    
+    '''
     if not os.path.exists(output_path):
         print("Creating output path... \n")
         os.makedirs(output_path)
@@ -90,36 +112,14 @@ def apply_deep_brain_skull_stripping_to_mri(input_path,output_path,probability =
     total_time = (time.time() - start)
     print('Done with skull stripping! Process took %.2f sec) \n' % total_time)
 
-#%%
-
 def main():
-    '''
-    Execute Skull Stripping
-
-    Example:
-        python mri_skull_stripping.py --type "DeepBrain" --input "/home/lucasthim1/alzheimer_data/raw_mri/ADNI/" --output "/home/lucasthim1/alzheimer_data/processed_mri_deepbrain/"
-
-        python mri_skull_stripping.py --type "DeepBrain" --input "/home/lucasthim1/alzheimer_data/test/002_S_4270" --output "/home/lucasthim1/alzheimer_data/test/"
-        
-        python mri_skull_stripping.py --type "DeepBrain" --input "/home/lucasthim1/alzheimer_data/raw_mri/ADNI" --output "/home/lucasthim1/alzheimer_data/processed_mri_deepbrain/"
-
-    '''    
+    
     
     skull_stripping_type = args.type
     input_path = args.input
     output_path = args.output
-    # print(skull_stripping_type)
-    # print(input_path)
-    # print(output_path)
+
     execute_skull_stripping_process(input_path=input_path,output_path=output_path,skull_stripping_type = skull_stripping_type)
 
 if __name__ == '__main__':
     main()    
-
-# %%
-# input_path = '/home/lucasthim1/alzheimer_data/test/002_S_4270'
-# output_path = '/home/lucasthim1/alzheimer_data/test/'
-# execute_skull_stripping_process(input_path=input_path,output_path=output_path,skull_stripping_type = 'ANTs')
-
-#%%
-

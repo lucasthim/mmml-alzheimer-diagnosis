@@ -20,7 +20,7 @@ from antspy_registration import register_image_with_atlas
 from mri_crop import crop_mri_at_center
 from mri_standardize import clip_and_normalize_mri
 
-def execute_preprocessing(input_path,output_path):
+def execute_preprocessing(input_path,output_path,box,skip):
     
     '''
     MRI Preprocessing pipeline. 
@@ -35,9 +35,20 @@ def execute_preprocessing(input_path,output_path):
     
     - MRI Cropping at 100x100x100
 
-    Example:
-
-        python mri_preprocessing.py --input "/home/lucasthim1/mmml-alzheimer-diagnosis/data/raw/ADNI" --output "/home/lucasthim1/mmml-alzheimer-diagnosis/data/preprocessed/20210328"
+    Parameters
+    ----------
+    
+    input_path: path where raw MRIs are located.
+    
+    output_path: path to save preprocessed MRIs.
+    
+    skip: amount of files to skip when executing preprocessing. This is to be used when reprocessing a batch of files that failed during execution.
+    
+    Example
+    ----------
+    
+    python mri_preprocessing.py --input "/home/lucasthim1/mmml-alzheimer-diagnosis/data/raw/ADNI" --output "/home/lucasthim1/mmml-alzheimer-diagnosis/data/preprocessed/20210328" --skip 100
+        
     '''   
     
     set_env_variables()
@@ -46,6 +57,7 @@ def execute_preprocessing(input_path,output_path):
     images_to_process,_,_ = list_available_images(input_path)
     print('------------------------------------------------------------------------------------------------------------------------')
     print(f"Starting pre-processing (Standardizing + Registration + Skull Stripping + Cropping) for {len(images_to_process)} images. This might take a while... =)")
+    print(f"Skipping {skip} images.")
     print('------------------------------------------------------------------------------------------------------------------------')
 
     if not os.path.exists(output_path):
@@ -53,6 +65,8 @@ def execute_preprocessing(input_path,output_path):
         os.makedirs(output_path)
 
     for ii,image_path in enumerate(images_to_process):
+        
+        if ii < skip: continue
         
         start_img = time.time()
         input_image = load_mri(path=image_path.as_posix())
@@ -69,7 +83,7 @@ def execute_preprocessing(input_path,output_path):
         stripped_image:ants.ANTsImage = deep_brain_skull_stripping(image=registered_image, probability = 0.5,output_as_array=False)
         
         print("Cropping image with bounding box 100x100x100...")
-        cropped_image:ants.ANTsImage = crop_mri_at_center(image=stripped_image)
+        cropped_image:ants.ANTsImage = crop_mri_at_center(image=stripped_image,cropping_box=box)
 
         print("Saving final image...")
         save_mri(image=cropped_image, output_path = output_path,name=create_file_name_from_path(image_path),file_format='.nii.gz')
@@ -90,33 +104,40 @@ def execute_preprocessing(input_path,output_path):
 def main():
      
     
-    execute_preprocessing(input_path=args.input,output_path=args.output)
-
+    execute_preprocessing(input_path=args.input, 
+                          output_path=args.output, 
+                          box=args.box,
+                          skip = args.skip)
 
 arg_parser = argparse.ArgumentParser(description='Preprocess MR images.')
-
 
 arg_parser.add_argument('-i','--input',
                     metavar='input',
                     type=str,
                     required=True,
-                    help='Input directory of the nifti files')
+                    help='Input directory of the nifti files.')
 
 arg_parser.add_argument('-o','--output',
                     metavar='output',
                     type=str,
                     required=True,
-                    help='Output directory of the nifti files')
+                    help='Output directory of the nifti files.')
 
-arg_parser.add_argument('-c','--bbox',
-                    dest='bbox',
+arg_parser.add_argument('-b','--box',
+                    dest='box',
                     type=list,
-                    default=[100,100,100],
+                    default=100,
                     required=False,
-                    help='Bounding box to crop brain image')
+                    help='Box to crop brain image.')
+
+arg_parser.add_argument('-s','--skip',
+                    dest='skip',
+                    type=int,
+                    default=0,
+                    required=False,
+                    help='Amount of images to skip when executing preprocessing.')
 
 args = arg_parser.parse_args()
-
 
 if __name__ == '__main__':
     main()    

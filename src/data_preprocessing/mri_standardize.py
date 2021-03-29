@@ -5,30 +5,49 @@ import nibabel as nib
 import numpy as np
 
 
-def clip_and_normalize_mri(image, lower_bound = 0.02, upper_bound = 99.8)-> ants.ANTsImage:
+def clip_and_normalize_mri(image:ants.ANTsImage, lower_bound = 0.02, upper_bound = 99.8)-> ants.ANTsImage:
     
     '''
     
     Execute outlier clipping and image normalization based on the Atlas.
 
-    Params:
+    Parameters
+    ----------
 
-    - image: MRI provided in ANTsPyImage format. If provided, function will use it instead of input_path.
+    image: MRI provided in ANTsPyImage format. If provided, function will use it instead of input_path.
 
-    - lower_bound: lower percentile to clip outliers in image. 
+    lower_bound: lower percentile to clip outliers in image. 
 
-    - upper_bound: upper percentile to clip outliers in image.
+    upper_bound: upper percentile to clip outliers in image.
 
+
+    Returns
+    ----------
+    image_scaled: scaled (normalized) image in ANTsImage format. 
+    
     '''
-
-    lower_threshold,upper_threshold = get_percentiles(image.numpy(),lower_bound=lower_bound, upper_bound = upper_bound)
-    image_clipped = clip_image_intensity(image.numpy(),lower_threshold=lower_threshold, upper_threshold=upper_threshold)
+    
+    if image_has_nan(image):
+        print("Replacing NaNs found in image...")
+        image = replace_nan(image)
+        
+    image_array = image.numpy()
+    lower_threshold,upper_threshold = get_percentiles(image_array,lower_bound=lower_bound, upper_bound = upper_bound)
+    image_clipped = clip_image_intensity(image_array,lower_threshold=lower_threshold, upper_threshold=upper_threshold)
     lower_atlas_threshold, upper_atlas_threshold = get_atlas_thresholds()
     image_scaled = scale_image_linearly(image_clipped,lower_atlas_threshold,upper_atlas_threshold)
     image_scaled = ants.from_numpy(image_scaled, direction=image.direction)
-
     return image_scaled
 
+def image_has_nan(img):
+    flag = img.numpy().ravel() != img.numpy().ravel() 
+    print(f"Found a total of {flag.sum()} NaN values in image.")
+    return flag.sum() > 0 
+
+def replace_nan(img):
+    img_np = img.numpy() 
+    img_np[img_np != img_np] = img_np.min()
+    return ants.from_numpy(img_np,direction=img.direction)
 
 def get_percentiles(img,lower_bound=0.02,upper_bound = 99.8):
     img_flatten = img.ravel()
