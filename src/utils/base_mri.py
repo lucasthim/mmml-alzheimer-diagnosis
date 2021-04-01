@@ -9,6 +9,23 @@ def list_available_images(input_dir,file_format = '.nii'):
 
     '''
     List full path to available images.
+    
+    Params
+    ---------------------
+    
+    input_dir: input directory to read the image files
+    
+    file_format: file format of the images
+    
+    
+    Returns
+    ---------------------
+    
+    selected_images: Selected images that can be processed
+    
+    available_images: All the available images in the provided directory
+    
+    masks_and_wrong_images: Masks and other images that will not be processed
     '''
 
     available_images = []
@@ -23,6 +40,15 @@ def list_available_images(input_dir,file_format = '.nii'):
     print("Available images to process: ",len(available_images) - len(masks_and_wrong_images),"\n")
     selected_images = list(set(available_images) - set(masks_and_wrong_images))
     
+    if selected_images: 
+        selected_images = [x.as_posix() for x in selected_images]
+
+    if available_images: 
+        available_images = [x.as_posix() for x in available_images]
+
+    if masks_and_wrong_images:
+        masks_and_wrong_images = [x.as_posix() for x in masks_and_wrong_images]
+        
     return selected_images,available_images,masks_and_wrong_images
 
 def delete_useless_images(input_dir,file_format = ".nii.gz"):

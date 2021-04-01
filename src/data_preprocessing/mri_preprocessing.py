@@ -69,7 +69,7 @@ def execute_preprocessing(input_path,output_path,box,skip):
         if ii < skip: continue
         
         start_img = time.time()
-        input_image = load_mri(path=image_path.as_posix())
+        input_image = load_mri(path=image_path)
         print('\n-------------------------------------------------------------------------------------------------------------------')
         print(f"Processing image ({ii+1}/{len(images_to_process)}):",image_path)
 
@@ -102,8 +102,6 @@ def execute_preprocessing(input_path,output_path,box,skip):
 
 
 def main():
-     
-    
     execute_preprocessing(input_path=args.input, 
                           output_path=args.output, 
                           box=args.box,

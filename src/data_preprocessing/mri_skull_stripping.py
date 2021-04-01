@@ -64,7 +64,7 @@ def execute_skull_stripping_process(input_path,output_path,skull_stripping_type 
             print("Deleting useless images (masks, gm,wm, etc)...\n")
             delete_useless_images(output_path)
         elif skull_stripping_type == 'DeepBrain':
-            apply_deep_brain_skull_stripping_to_mri(image_path.as_posix(),output_path)
+            apply_deep_brain_skull_stripping_to_mri(image_path,output_path)
         else:
             raise('Please select a valid skull stripping process.')
 

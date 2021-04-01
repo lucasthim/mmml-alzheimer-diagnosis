@@ -46,7 +46,7 @@ def image_has_nan(img):
 
 def replace_nan(img):
     img_np = img.numpy() 
-    img_np[img_np != img_np] = img_np.min()
+    img_np[img_np != img_np] = np.nanmin(img_np)
     return ants.from_numpy(img_np,direction=img.direction)
 
 def get_percentiles(img,lower_bound=0.02,upper_bound = 99.8):

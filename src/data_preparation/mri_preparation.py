@@ -18,13 +18,20 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and er
 from base_mri import list_available_images, delete_useless_images, set_env_variables, load_mri, save_mri,save_batch_mri, create_file_name_from_path
 from mri_augmentation import * 
 
-arg_parser = argparse.ArgumentParser(description='Executes Data Preparation for MR images. Steps include to transform the 3D image into a 2D slice and also execute a simple Data Augmentation (optional)')
+arg_parser = argparse.ArgumentParser(description='Executes Data Preparation for MR images. Steps include transforming the 3D image into a 2D slice and also a simple Data Augmentation (optional)')
 
 arg_parser.add_argument('-i','--input',
                     metavar='input',
                     type=str,
                     required=True,
                     help='Input directory of the mri files')
+
+arg_parser.add_argument('-f','--format',
+                    metavar='format',
+                    type=str,
+                    default='.nii.gz',
+                    required=False,
+                    help='Format of the mri input files')
 
 arg_parser.add_argument('-o','--output',
                     metavar='output',
@@ -63,11 +70,25 @@ arg_parser.add_argument('-r','--sampling_range',
 args = arg_parser.parse_args()
 
 
-def execute_data_preparation(input_path,output_path,orientation,orientation_slice,num_augmented_images,sampling_range):
+def execute_data_preparation(input_path,output_path,orientation,orientation_slice,num_augmented_images,sampling_range,file_format):
+
+    '''
+    Execute image Preparation
+
+    Main Steps:
+
+    - Transform 3D image to 2D image based on an orientation and slice indication
+
+    - Executes Data Augmentation (optional) generating more images based on rotation and flipping. 
+
+    Example:
+
+        python mri_preparation.py --input "/home/lucasthim1/mmml-alzheimer-diagnosis/data/preprocessed/20210320/" --format ".nii.gz" --output "/home/lucasthim1/mmml-alzheimer-diagnosis/data/processed/20210327_coronal_50/" --orientation "coronal" --orientation_slice 50 --num_augmented_images 3 --sampling_range 3
+    '''
 
     set_env_variables()
     start = time.time()
-    images_to_process,_,_ = list_available_images(input_path,file_format = '.npz')
+    images_to_process,_,_ = list_available_images(input_path,file_format = file_format)
     print('----------------------------------------------------------------------------------------------------------------------------')
     print(f"Starting data preparation (Cutting 2D Slice + Data Augmentation) for {len(images_to_process)} images. This might take a while... =)")
     print('----------------------------------------------------------------------------------------------------------------------------')
@@ -79,7 +100,7 @@ def execute_data_preparation(input_path,output_path,orientation,orientation_slic
     for ii,image_path in enumerate(images_to_process):
         
         start_img = time.time()
-        image_3d = load_mri(path=image_path.as_posix(),as_ants=True)
+        image_3d = load_mri(path=image_path,as_ants=True)
         print('\n-------------------------------------------------------------------------------------------------------------------')
         print(f"Processing image ({ii+1}/{len(images_to_process)}):",image_path)
         print("Transforming 3D MRI to 2D image...")
@@ -99,7 +120,7 @@ def execute_data_preparation(input_path,output_path,orientation,orientation_slic
             print(f"Executing data augmentation for {num_augmented_images} samples within a {sampling_range} voxel distance from the 2d slice {orientation_slice}...")
             augmented_2d_images = generate_augmented_images(image_3d,orientation,orientation_slice,num_augmented_images,sampling_range,augmentation_type = 'neighborhood_sampling')
             print("Saving augmented images...")
-            save_batch_mri(image_references=augmented_2d_images, output_path = output_path,name=create_file_name_from_path(image_path),file_format='.nii.gz')
+            save_batch_mri(image_references=augmented_2d_images, output_path = output_path,name=create_file_name_from_path(image_path),file_format='.npz')
             
         total_time_img = (time.time() - start_img)
         print(f'Process for image ({ii+1}/{len(images_to_process)}) took %.2f sec) \n' % total_time_img)
@@ -115,26 +136,7 @@ def execute_data_preparation(input_path,output_path,orientation,orientation_slic
     print('-------------------------------------------------------------')
 
 def main():
-    
-    '''
-    Execute image Preparation
-    
-    Main Steps:
-    
-    - Transform 3D image to 2D image based on an orientation and slice indication
-    
-    - Executes Data Augmentation (optional) generating more images based on rotation and flipping. 
-
-    Example:
-
-        python mri_preparation.py --input "/home/lucasthim1/mmml-alzheimer-diagnosis/data/preprocessed/20210320/" --output "/home/lucasthim1/mmml-alzheimer-diagnosis/data/processed/final_mri_20210327/" --orientation "coronal" --orientation_slice 30 --num_augmented_images 3 --sampling_range 3
-
-    '''
-    execute_data_preparation(args.input,args.output,args.orientation,args.orientation_slice,args.num_augmented_images,args.sampling_range)
+    execute_data_preparation(args.input,args.output,args.orientation,args.orientation_slice,args.num_augmented_images,args.sampling_range,args.format)
 
 if __name__ == '__main__':
     main()    
-
-    
-    
-    
