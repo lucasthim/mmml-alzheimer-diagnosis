@@ -10,13 +10,20 @@ def crop_mri_at_center(image: Union[np.ndarray, ants.ANTsImage] = None, cropping
     '''
     Crop MR image at center of the image. Suggested size = 100x100x100
 
-    Params:
 
-    - image: MRI provided in ANTsPyImage or numpy array format. 
+    Parameters
+    ----------
+    
+    image: MRI provided in ANTsPyImage or numpy array format. 
 
-    - cropping_box: box size to crop image
+    cropping_box: box size to crop image
 
-    - center_dim: custom center point. If not provided, it is calculated the center of the image
+    center_dim: custom center point. If not provided, it is calculated the center of the image
+
+    Returns
+    ----------
+    Cropped 3D image in ANTsPyImage or numpy array format.
+
     '''
 
     if image is None:
@@ -34,13 +41,19 @@ def get_lower_and_upper_dimensions(image, cropping_box, center_dim = None):
     '''
     Get upper and lower bounds dimensions based on the image center and the size of the cropping.
     
-    Params:
+
+    Parameters
+    ----------
+
+    image: MRI provided in ANTsPyImage or numpy array format. 
     
-    - image: MRI provided in ANTsPyImage or numpy array format. 
+    cropping_box: box size to crop image
     
-    - cropping_box: box size to crop image
-    
-    - center_dim: custom center point. If not provided, it is calculated the center of the image
+    center_dim: custom center point. If not provided, it is calculated the center of the image
+
+    Returns
+    ----------
+    Tuple with upper and lower dimensions.
     '''
     if center_dim is None:
         center_dim = [int(np.ceil(x/2)) for x in image.shape]

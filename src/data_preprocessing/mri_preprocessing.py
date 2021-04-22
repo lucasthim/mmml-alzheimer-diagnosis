@@ -1,3 +1,4 @@
+# %%
 import os
 from pathlib import Path
 import sys
@@ -8,17 +9,18 @@ import numpy as np
 import nibabel as nib
 import ants
 from deepbrain import Extractor
+import tensorflow as tf
 
 sys.path.append("./../utils")
-import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and errors from TF. Need to use it carefully
 
+from base_mri import *
 from deepbrain_skull_strip import deep_brain_skull_stripping
-from base_mri import list_available_images, delete_useless_images, set_env_variables, load_mri, save_mri, create_file_name_from_path
 from antspy_registration import register_image_with_atlas
 from mri_crop import crop_mri_at_center
 from mri_standardize import clip_and_normalize_mri
+from mri_label import label_image_files
 
 def execute_preprocessing(input_path,output_path,box,skip):
     
@@ -47,7 +49,7 @@ def execute_preprocessing(input_path,output_path,box,skip):
     Example
     ----------
     
-    python mri_preprocessing.py --input "/home/lucasthim1/mmml-alzheimer-diagnosis/data/raw/ADNI" --output "/home/lucasthim1/mmml-alzheimer-diagnosis/data/preprocessed/20210328" --skip 100
+    python mri_preprocessing.py --input "/home/lucasthim1/mmml-alzheimer-diagnosis/data/mri/raw/ADNI" --output "/home/lucasthim1/mmml-alzheimer-diagnosis/data/mri/preprocessed/20210402" --skip 0
         
     '''   
     
@@ -56,14 +58,14 @@ def execute_preprocessing(input_path,output_path,box,skip):
 
     images_to_process,_,_ = list_available_images(input_path)
     print('------------------------------------------------------------------------------------------------------------------------')
-    print(f"Starting pre-processing (Standardizing + Registration + Skull Stripping + Cropping) for {len(images_to_process)} images. This might take a while... =)")
+    print(f"Starting pre-processing (Labeling + Standardizing + Registration + Skull Stripping + Cropping) for {len(images_to_process)} images. This might take a while... =)")
     print(f"Skipping {skip} images.")
     print('------------------------------------------------------------------------------------------------------------------------')
 
     if not os.path.exists(output_path):
         print("Creating output path... \n")
         os.makedirs(output_path)
-
+    
     for ii,image_path in enumerate(images_to_process):
         
         if ii < skip: continue
@@ -90,7 +92,14 @@ def execute_preprocessing(input_path,output_path,box,skip):
 
         total_time_img = (time.time() - start_img)
         print(f'Process for image ({ii+1}/{len(images_to_process)}) took %.2f sec) \n' % total_time_img)
-
+    
+    print("Finishing preprocessing by labeling image files...")
+    preprocessed_images,_,_ = list_available_images(output_path,file_format='.nii.gz',verbose=0)
+    
+    create_images_reference_table(preprocessed_images,output_path = output_path)
+    # label_image_files(preprocessed_images,file_format='.nii.gz')
+    
+    
     total_time = (time.time() - start) / 60.
     print('-------------------------------------------------------------')
     print('-------------------------------------------------------------')
@@ -100,7 +109,7 @@ def execute_preprocessing(input_path,output_path,box,skip):
     print('-------------------------------------------------------------')
     print('-------------------------------------------------------------')
 
-
+# %%
 def main():
     execute_preprocessing(input_path=args.input, 
                           output_path=args.output, 

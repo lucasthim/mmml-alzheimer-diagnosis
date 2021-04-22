@@ -11,17 +11,41 @@ def generate_augmented_images(image_3d:ants.ANTsImage,orientation,orientation_sl
     
     '''
     
-    Process to generate augmented images.
+    Process to generate augmented MRI images. 
+
+    Main steps:
+
+    1 - Orientation selection.
+
+    2 - Slice Selection.
+
+    3 - Sampling new images around the chosen slice, within a given range.
+
+    4 - Apply flipping and rotation to the chosen images.
+
+
+    Parameters
+    ----------
     
-    Arguments:
-    - image_3d: 3D MRI ANTsImage object in memory
-    - orientation: Orientation to cut the image. Values can be "coronal", "sagittal" or "axial"
-    - orientation_slice: Point to slice the 3D image. Values range from 0 to 100. TODO: fix future bug if sampling_range is outside of the image
-    - num_augmented_images: Number of augmented images to sample
-    - sampling_range: range to sample new images, with reference to the orientation_slice.
-    - augmentation_type: Data Augmentation type. Values can be "simple" or "neighborhood_sampling".
-     
+    image_3d: 3D MRI ANTsImage object in memory
+    
+    orientation: Orientation to cut the image. Values can be "coronal", "sagittal" or "axial"
+    
+    orientation_slice: Point to slice the 3D image. Values range from 0 to 100. TODO: fix future bug if sampling_range is outside of the image
+    
+    num_augmented_images: Number of augmented images to sample
+    
+    sampling_range: range to sample new images, with reference to the orientation_slice.
+    
+    augmentation_type: Data Augmentation type. Values can be "simple" or "neighborhood_sampling".
+
+
+    Returns
+    ----------
+
+    A dictionary containing all the augmented images. The keys are the image names plus augmentation type and the values are the image objects.
     '''
+
     image_2d = slice_image(image_3d,orientation,orientation_slice)
     img_dict = generate_augmented_slice(image_2d,orientation,orientation_slice)
     
@@ -37,14 +61,23 @@ def generate_augmented_images(image_3d:ants.ANTsImage,orientation,orientation_sl
 def generate_augmented_slice(image_2d:np.ndarray,orientation,orientation_slice)-> dict:
     
     '''
-    Executes the data augmentation with 90, 180, 270 rotations and also horizontal and vertical flipping.
+    Data augmentation with 90, 180, 270 rotations and also horizontal and vertical flipping.
     
-    Arguments:
-    - image_2d: 2D image
-    - orientation: Orientation to cut the image. Values can be "coronal", "sagittal" or "axial"
-    - orientation_slice: Point to slice the 3D image. Values range from 0 to 100. TODO: fix future bug if sampling_range is outside of the image
-    - num_augmented_images: Number of augmented images to sample
+    Parameters
+    ----------
     
+    image_2d: 2D image object
+    
+    orientation: Orientation to cut the image. Values can be "coronal", "sagittal" or "axial"
+    
+    orientation_slice: Point to slice the 3D image. Values range from 0 to 100. TODO: fix future bug if sampling_range is outside of the image
+    
+    num_augmented_images: Number of augmented images to sample
+
+    Returns
+    ----------
+
+    A dictionary containing all the augmented images. The keys are the image names plus augmentation type and the values are the image objects.
     '''
     
     img_rot_90 = np.rot90(image_2d, k=1, axes=(1,0)).copy()
@@ -69,11 +102,20 @@ def sample_from_neighborhood(orientation_slice,sampling_range,num_augmented_imag
     '''
     Sample new slices around a reference point of a 3D image. Returns an array with the index of the new sampled slices.
     
-    Arguments:
-    - orientation_slice: Point to slice the 3D image. Values range from 0 to 100. TODO: fix future bug if sampling_range is outside of the image
-    - num_augmented_images: Number of augmented images to sample
-    - sampling_range: range to sample new images, with reference to the orientation_slice.
+    Parameters
+    ----------
     
+    orientation_slice: Point to slice the 3D image. Values range from 0 to 100. TODO: fix future bug if sampling_range is outside of the image
+    
+    num_augmented_images: Number of augmented images to sample
+    
+    sampling_range: range to sample new images, with reference to the orientation_slice.
+    
+
+    Returns
+    ----------
+
+    List of sampled images.
     '''
     
     random.seed(a=None, version=2)
@@ -94,11 +136,19 @@ def slice_image(image_3d: ants.ANTsImage,orientation,orientation_slice):
     1 - Coronal
     2 - Axial
     
-    Arguments:
-    - image_3d: 3D MRI object in memory
-    - orientation: Orientation to cut the image. Values can be "coronal", "sagittal" or "axial"
-    - orientation_slice: Point to slice the 3D image. Values range from 0 to 100. TODO: fix future bug if sampling_range is outside of the image
+    Parameters
+    ----------
+    
+    
+    image_3d: 3D MRI object in memory
+    
+    orientation: Orientation to cut the image. Values can be "coronal", "sagittal" or "axial"
+    
+    orientation_slice: Point to slice the 3D image. Values range from 0 to 100. TODO: fix future bug if sampling_range is outside of the image
 
+    Returns
+    ----------
+    Returns a 2D image.
     
     '''
     image_3d = image_3d.numpy()

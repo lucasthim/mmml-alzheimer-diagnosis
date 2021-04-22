@@ -12,12 +12,18 @@ def register_image_with_atlas(moving:ants.ANTsImage = None, type_of_transform = 
     '''
     Execute ANTs Registration.
 
-    Params:
+    Parameters
+    ----------
 
-    - image: Image file in numpy array format. If provided, function will use it instead of input_path
+    image: Image file in numpy array format. If provided, function will use it instead of input_path
 
-    - type_of_transform: Type of Registration Transformation to be applied. Values tested: 'Affine', 'Similarity', 'Rigid'.
+    type_of_transform: Type of Registration Transformation to be applied. Values tested: 'Affine', 'Similarity', 'Rigid'.
     
+    
+    Returns
+    ----------
+    
+    Registered image in the ANTsImage format.
     '''
 
     fixed = ants.image_read(ATLAS_PATH)

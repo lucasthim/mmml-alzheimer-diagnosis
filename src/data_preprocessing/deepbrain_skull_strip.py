@@ -15,8 +15,10 @@ def deep_brain_skull_stripping(image: ants.ANTsImage, probability = 0.5, output_
 
     DeepBrain uses a 3D Unet to strip the skulls from patients.
 
+
     Parameters
     ----------
+
     image: MRI object to strip.
 
     probability: Probability to make extraction mask binary and apply to image.
@@ -27,9 +29,12 @@ def deep_brain_skull_stripping(image: ants.ANTsImage, probability = 0.5, output_
     
     get_mask: Flag to return the skull stripping mask instead of the stripped image.
         
+
     Returns
     ----------
+
     final_img: skull stripped image in ANTsImage format.
+
     '''
 
     if type(image) is ants.ANTsImage:

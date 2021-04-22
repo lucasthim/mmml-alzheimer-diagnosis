@@ -73,7 +73,7 @@ args = arg_parser.parse_args()
 def execute_data_preparation(input_path,output_path,orientation,orientation_slice,num_augmented_images,sampling_range,file_format):
 
     '''
-    Execute image Preparation
+    Execute MRI preparation for training the deep learning model.
 
     Main Steps:
 
@@ -81,6 +81,23 @@ def execute_data_preparation(input_path,output_path,orientation,orientation_slic
 
     - Executes Data Augmentation (optional) generating more images based on rotation and flipping. 
 
+    Parameters
+    ----------
+ 
+    input_path: path of the preprocessed images to prepare.
+    
+    output_path: path to save the prepared images.
+    
+    orientation: Orientation to cut the image. Values can be "coronal", "sagittal" or "axial".
+    
+    orientation_slice: Point to slice the 3D image. Values range from 0 to 100. TODO: fix future bug if sampling_range is outside of the image.
+    
+    num_augmented_images: Number of augmented images to sample.
+    
+    sampling_range: range to sample new images, with reference to the orientation_slice.
+    
+    file_format: File format of the (preprocessed) input images.
+    
     Example:
 
         python mri_preparation.py --input "/home/lucasthim1/mmml-alzheimer-diagnosis/data/preprocessed/20210320/" --format ".nii.gz" --output "/home/lucasthim1/mmml-alzheimer-diagnosis/data/processed/20210327_coronal_50/" --orientation "coronal" --orientation_slice 50 --num_augmented_images 3 --sampling_range 3
@@ -125,7 +142,7 @@ def execute_data_preparation(input_path,output_path,orientation,orientation_slic
         total_time_img = (time.time() - start_img)
         print(f'Process for image ({ii+1}/{len(images_to_process)}) took %.2f sec) \n' % total_time_img)
 
-
+    # TODO: create final mri reference dataframe.
     total_time = (time.time() - start) / 60.
     print('-------------------------------------------------------------')
     print('-------------------------------------------------------------')
