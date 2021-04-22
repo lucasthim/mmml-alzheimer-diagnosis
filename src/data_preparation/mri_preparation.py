@@ -141,8 +141,11 @@ def execute_data_preparation(input_path,output_path,orientation,orientation_slic
             
         total_time_img = (time.time() - start_img)
         print(f'Process for image ({ii+1}/{len(images_to_process)}) took %.2f sec) \n' % total_time_img)
-
-    # TODO: create final mri reference dataframe.
+    
+    print("Creating new reference image table for prepared images...")
+    prepared_images,_,_ = list_available_images(output_path,file_format='.npz',verbose=0)
+    create_images_reference_table(prepared_images,output_path = output_path)
+    
     total_time = (time.time() - start) / 60.
     print('-------------------------------------------------------------')
     print('-------------------------------------------------------------')

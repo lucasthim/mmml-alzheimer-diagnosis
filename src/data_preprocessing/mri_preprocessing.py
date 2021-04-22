@@ -93,9 +93,8 @@ def execute_preprocessing(input_path,output_path,box,skip):
         total_time_img = (time.time() - start_img)
         print(f'Process for image ({ii+1}/{len(images_to_process)}) took %.2f sec) \n' % total_time_img)
     
-    print("Finishing preprocessing by labeling image files...")
+    print("Creating new reference image table for preprocessed images...")
     preprocessed_images,_,_ = list_available_images(output_path,file_format='.nii.gz',verbose=0)
-    
     create_images_reference_table(preprocessed_images,output_path = output_path)
     # label_image_files(preprocessed_images,file_format='.nii.gz')
     
