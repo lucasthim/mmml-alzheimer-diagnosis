@@ -3,7 +3,7 @@ from torch.utils import data
 
 from mri_dataset import MRIDataset
 from mri_train_test_split import train_test_split_by_subject
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 
 ####################################################################
 ################# TODO step-by-step ################################
@@ -30,10 +30,15 @@ df_train_reference, df_validation_reference = train_test_split_by_subject(df_tra
 
 # Generators
 training_set = MRIDataset(df_train_reference)
-training_generator = data.DataLoader(training_set, **params)
+training_generator = DataLoader(training_set, **params)
 
 validation_set = MRIDataset(df_validation_reference)
-validation_generator = data.DataLoader(validation_set, **params)
+validation_generator = DataLoader(validation_set, **params)
+
+
+
+
+
 
 # # Loop over epochs
 # for epoch in range(max_epochs):
