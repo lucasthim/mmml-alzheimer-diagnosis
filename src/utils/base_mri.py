@@ -174,7 +174,7 @@ def create_reference_table(image_list,output_path,previous_reference_file_path =
     Saves a reference dataframe along with the images to be further used in the training phase.
 
     '''
-         
+
     df_original_reference = load_reference_table(path = previous_reference_file_path)
     image_references = create_image_references(image_list)
 
@@ -185,12 +185,13 @@ def create_reference_table(image_list,output_path,previous_reference_file_path =
     
     df_reference = pd.merge(df_image_path,df_original_reference,how='inner',on='SUBJECT_IMAGE_ID')
     if not output_path.endswith('/'): output_path = output_path + '/'
+    df_reference['IMAGE_PATH'] = df_reference['IMAGE_PATH'].str.replace(output_path,'')
     df_reference.to_csv(output_path + 'REFERENCE.csv',index=False)
     print("Reference file saved at: ",output_path)
     return df_reference
 
 def create_image_references(imgs_list):
-    "Creates a dictionary where the key is the image id and the value is the path to the image."
+    "Creates a triplet where: the first position is subject id, the second is the image id and the third is the path to the image."
     imgs = []
     for path in imgs_list: 
         imgs.append(create_unique_patient_image_id(path))

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-def train_test_split_by_subject(df,test_size = 0.3,labels = ['AD','CN'],label_column = ['MACRO_GROUP']):
+def train_test_split_by_subject(df,test_size = 0.3,labels = ['AD','CN'],label_column = 'MACRO_GROUP'):
     
     '''
     Splits the dataset on train and test, at patient level (to avoid data leakage).
