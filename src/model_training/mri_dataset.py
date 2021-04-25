@@ -2,7 +2,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 from torch.utils.data import Dataset
-
+from torchvision import transforms, utils
 from src.utils.base_mri import load_mri
 
 class MRIDataset(Dataset):
@@ -39,6 +39,9 @@ class MRIDataset(Dataset):
           # Load data and get label
           # X = torch.load('data/' + ID + '.pt')
           X = load_mri(path=self.path + sample['IMAGE_PATH'])
+          
+          # transforming to tensor and normalizing image between 0 and 1.
+          # TODO: Put normalization at the end of data prep step
+          X = X/X.max()
           y = sample[self.target_column]
-
           return X, y
