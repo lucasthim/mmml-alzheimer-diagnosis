@@ -133,4 +133,6 @@ dmypy.json
 /src/data/
 /data/
 .vscode/
+/models/
 
+cloudflared*
