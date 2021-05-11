@@ -1,5 +1,6 @@
 # %%
 import time
+from datetime import datetime
 
 import pandas as pd
 import numpy as np
@@ -17,15 +18,19 @@ from torchvision import datasets
 from torchvision.transforms import ToTensor, Lambda, Compose
 import torchvision.models as models
 
-from mri_dataset import MRIDataset
-from mri_train_test_split import train_test_split_by_subject
+from src.model_training.mri_dataset import MRIDataset
+from src.model_training.mri_train_test_split import train_test_split_by_subject
 from src.models.neural_network import NeuralNetwork
 
-%load_ext autoreload
-%autoreload 2
+# %load_ext autoreload
+# %autoreload 2
 
-# IMG_PATH = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/processed/coronal_50_25K_images_20210329/'
-IMG_PATH = '/content/gdrive/MyDrive/Lucas_Thimoteo/data_alzheimer/'
+# Defining global variables
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print("Using {} device".format(device))
+train_dataloader = None
+
+IMG_PATH = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/processed/coronal_50_25K_images_20210402/'
 MODELS_PATH =  '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/'
 MODEL_NAME = 'experiment_01_20210429'
 
@@ -57,6 +62,10 @@ def train(train_dataloader,
         print_metrics(train_metrics,validation_metrics)
         print('\nEpoch {} took'.format(epoch+1),'%3.2f seconds' % (time.time() - t0))
         print('---------------------------------------------------------------------')
+        
+        # TODO: save metrics in dataframe
+        # TODO: log in console instead of printing
+
         train_loss, validation_loss = train_metrics[0],validation_metrics[0]
         train_losses.append(train_loss)
         validation_losses.append(validation_loss)
@@ -65,11 +74,11 @@ def train(train_dataloader,
         if best_validation_auc >= validation_auc:
             early_stopping_marker += 1
         else:
+            best_epoch = epoch+1
             best_validation_auc = validation_auc
             early_stopping_marker = 0
             best_model_params = model.state_dict()
             best_validation_metrics = validation_metrics
-            best_epoch = epoch+1
             print('Best validation AUC so far: %1.4f' % best_validation_metrics[1])
         
         if early_stopping_epochs > 0:
@@ -80,7 +89,7 @@ def train(train_dataloader,
                 torch.save(best_model_params, MODELS_PATH + MODEL_NAME + '.pth')
                 break
 
-        if (epoch+1) == max_epochs:
+        if (best_epoch) == max_epochs:
             print("Saving model at:",MODELS_PATH,'\n')
             # TODO: Save model with timestamp and small description of experiment.
             torch.save(best_model_params, MODELS_PATH + MODEL_NAME + '.pth')
@@ -91,7 +100,7 @@ def train(train_dataloader,
     plt.title("Training vs Validation Loss")
     plt.show()    
     print('\n-------------------------------')
-    print("Best metrics for validation set:")
+    print(f"Best metrics for validation set on Epoch {best_epoch}:")
     print_metrics(best_validation_metrics)
     print('-------------------------------\n')
 
@@ -114,11 +123,12 @@ def test(dataloader,model,loss_fn):
             test_loss += loss_fn(y_pred, y).item()
             true_labels = torch.cat((true_labels,y),0)
             predicted_labels = torch.cat((predicted_labels,y_pred),0)
-
     print("Performance for Test set:")
     test_loss /= size
     auc, accuracy, f1score, recall, precision,conf_mat = compute_metrics_binary(y_pred = predicted_labels,y_true = true_labels,threshold = 0.5,verbose=0)
     test_metrics = test_loss, auc, accuracy, f1score, recall, precision,conf_mat
+    # TODO: save metrics in dataframe
+    # TODO: log in console instead of printing
     print_metrics(test_metrics,validation_metrics = None)
 
 def train_one_epoch(dataloader, model, loss_fn, optimizer):
@@ -185,16 +195,13 @@ def validate_one_epoch(dataloader, model, loss_fn, optimizer):
             optimizer.zero_grad()
             loss = loss.item()
             
-            # if batch % 2 == 0 and batch > 0:
-            #     current = batch * len(X)
-            #     print(f"val_loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
             running_loss += loss    
             true_labels = torch.cat((true_labels,y),0)
             predicted_labels = torch.cat((predicted_labels,y_pred),0)
-            # print("batch accumulated size:", predicted_labels.size())
 
         auc, accuracy, f1score, recall, precision, conf_mat = compute_metrics_binary(y_pred = predicted_labels,y_true = true_labels,threshold = 0.5,verbose=0)
         running_loss = running_loss/size
+        
         return running_loss, auc, accuracy, f1score, recall, precision,conf_mat
 
 def compute_metrics_binary(y_pred:torch.Tensor,y_true:torch.Tensor,threshold = 0.5,verbose=0):
@@ -258,106 +265,122 @@ def count_trainable_parameters(model):
     print("Total number of trainable parameters:",pp)
     # return pp
 
-# %% 
+def prepare_dataset_for_training(IMG_PATH,classes = ['AD','CN'],dataset_params = None):
+    
+    df_reference = pd.read_csv(IMG_PATH + "REFERENCE.csv")
+    df_reference = df_reference.query("MACRO_GROUP in @classes")
+    
+    df_reference.loc[df_reference['MACRO_GROUP'] == 'AD','MACRO_GROUP'] = 1
+    df_reference.loc[df_reference['MACRO_GROUP'] == 'CN','MACRO_GROUP'] = 0
+    df_reference.loc[df_reference['MACRO_GROUP'] == 'MCI','MACRO_GROUP'] = 2
 
-df_reference = pd.read_csv(IMG_PATH + "REFERENCE.csv")
-df_reference = df_reference.query("MACRO_GROUP in ('AD','CN')")
-df_reference.loc[df_reference['MACRO_GROUP'] == 'AD','MACRO_GROUP'] = 1
-df_reference.loc[df_reference['MACRO_GROUP'] == 'CN','MACRO_GROUP'] = 0
+    df_reference = df_reference #.iloc[:1000]
 
-df_reference = df_reference #.iloc[:1000]
+    # Defining Dataset Generators
+    df_train_reference, df_test_reference = train_test_split_by_subject(df_reference,test_size = 0.2,labels = [1,0],label_column = 'MACRO_GROUP')
+    df_train_reference, df_validation_reference = train_test_split_by_subject(df_train_reference,test_size = 0.25,labels = [1,0],label_column = 'MACRO_GROUP')
 
-# Parameters
-dataset_params = {'batch_size': 16,
-          'shuffle': True,
-          'num_workers': 32}
+    df_train_reference = df_train_reference.query("not UNIQUE_IMAGE_ID.str.contains('flip') and not UNIQUE_IMAGE_ID.str.contains('rot')",engine='python').sort_values("IMAGE_DATA_ID")
+    df_validation_reference = df_validation_reference.query("not UNIQUE_IMAGE_ID.str.contains('flip') and not UNIQUE_IMAGE_ID.str.contains('rot') and UNIQUE_IMAGE_ID.str.contains('_50')",engine='python').sort_values("IMAGE_DATA_ID")
+    df_test_reference = df_test_reference.query("not UNIQUE_IMAGE_ID.str.contains('flip') and not UNIQUE_IMAGE_ID.str.contains('rot') and UNIQUE_IMAGE_ID.str.contains('_50')",engine='python').sort_values("IMAGE_DATA_ID")
 
-# Defining Dataset Generators
-df_train_reference, df_test_reference = train_test_split_by_subject(df_reference,test_size = 0.2,labels = [1,0],label_column = 'MACRO_GROUP')
-df_train_reference, df_validation_reference = train_test_split_by_subject(df_train_reference,test_size = 0.25,labels = [1,0],label_column = 'MACRO_GROUP')
+    # Parameters
+    if dataset_params is None:
+        dataset_params = {'batch_size': 16,
+                'shuffle': True,
+                'num_workers': 32}
 
-df_train_reference = df_train_reference.query("not UNIQUE_IMAGE_ID.str.contains('flip') and not UNIQUE_IMAGE_ID.str.contains('rot')",engine='python').sort_values("IMAGE_DATA_ID")
-df_validation_reference = df_validation_reference.query("not UNIQUE_IMAGE_ID.str.contains('flip') and not UNIQUE_IMAGE_ID.str.contains('rot') and UNIQUE_IMAGE_ID.str.contains('_50')",engine='python').sort_values("IMAGE_DATA_ID")
-df_test_reference = df_test_reference.query("not UNIQUE_IMAGE_ID.str.contains('flip') and not UNIQUE_IMAGE_ID.str.contains('rot') and UNIQUE_IMAGE_ID.str.contains('_50')",engine='python').sort_values("IMAGE_DATA_ID")
+    training_set = MRIDataset(reference_table = df_train_reference,path=IMG_PATH)
+    train_dataloader = DataLoader(training_set, **dataset_params)
 
-training_set = MRIDataset(reference_table = df_train_reference,path=IMG_PATH)
-training_generator = DataLoader(training_set, **dataset_params)
+    validation_set = MRIDataset(reference_table = df_validation_reference,path=IMG_PATH)
+    validation_dataloader = DataLoader(validation_set, **dataset_params)
 
-validation_set = MRIDataset(reference_table = df_validation_reference,path=IMG_PATH)
-validation_generator = DataLoader(validation_set, **dataset_params)
+    test_set = MRIDataset(reference_table = df_test_reference,path=IMG_PATH)
+    test_dataloader = DataLoader(test_set, **dataset_params)
+    return train_dataloader,validation_dataloader,test_dataloader
 
-test_set = MRIDataset(reference_table = df_test_reference,path=IMG_PATH)
-test_generator = DataLoader(test_set, **dataset_params)
+def run_vgg_experiment():
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print("Using {} device".format(device))
+    MODEL_NAME = 'vgg_' + datetime.now().strftime("%m.%d.%Y_%H.%M.%S") + '_vgg11_classifier_2048_2048'
+
+    vgg = models.vgg11()
+    vgg.features[0] = Conv2d(1,64, 3, stride=1,padding=1)
+    vgg.classifier[0] = Linear(in_features=7*7*512, out_features=2048,bias=True)
+    vgg.classifier[3] = Linear(in_features=2048, out_features=2048,bias=True)
+    vgg.classifier[-1] = Linear(in_features=2048, out_features=1,bias=True)
+    print(vgg)
+    print('')
+    print('')
+    model = vgg.to(device)
+    count_trainable_parameters(model)
+
+    optimizer = Adam(model.parameters(), lr=0.00001)
+
+    criterion = BCEWithLogitsLoss()
+    criterion = criterion.to(device)
+
+    dataset_params = {'batch_size': 16,
+            'shuffle': True,
+            'num_workers': 32}
+            
+    # if train_dataloader is None:
+    train_dataloader,validation_dataloader,test_dataloader = prepare_dataset_for_training(IMG_PATH,classes = ['AD','CN'],dataset_params=dataset_params)
+
+    train(train_dataloader=train_dataloader,
+        validation_dataloader=validation_dataloader,
+        model=model,
+        loss_fn=criterion,
+        optimizer=optimizer,
+        max_epochs=100,
+        early_stopping_epochs=10
+        )
+
+    test(dataloader=test_dataloader,
+        model=model,
+        loss_fn=criterion)
+
+def run_shallow_cnn_experiment():
+
+    MODEL_NAME = 'baseline_' + datetime.now().strftime("%m.%d.%Y_%H.%M.%S") + 'bn_2xConv_classifier_512_256'
+    custom_nn = NeuralNetwork()
+    model = custom_nn.to(device)
+    print(model)
+    count_trainable_parameters(model)
+
+    optimizer = RMSprop(model.parameters(), lr=0.0001)
+    criterion = BCEWithLogitsLoss()
+    criterion = criterion.to(device)
+
+    dataset_params = {'batch_size': 16,
+            'shuffle': True,
+            'num_workers': 32}
+            
+    # if train_dataloader is None:
+    train_dataloader,validation_dataloader,test_dataloader = prepare_dataset_for_training(IMG_PATH,classes = ['AD','CN'],dataset_params=dataset_params)
+
+    train(train_dataloader=train_dataloader,
+        validation_dataloader=validation_dataloader,
+        model=model,
+        loss_fn=criterion,
+        optimizer=optimizer,
+        max_epochs=100,
+        early_stopping_epochs=10
+        )
+
+    test(dataloader=test_dataloader,
+        model=model,
+        loss_fn=criterion)
 
 # %%
+# TODO: create train object! 
 
-vgg = models.vgg11()
-# print(vgg)
-vgg.features[0] = Conv2d(1,64, 3, stride=1,padding=1)
-vgg.classifier[0] = Linear(in_features=7*7*512, out_features=256,bias=True)
-vgg.classifier[3] = Linear(in_features=256, out_features=128,bias=True)
-vgg.classifier[-1] = Linear(in_features=128, out_features=1,bias=True)
-print(vgg)
-# best results with 2048 and 2048 - val_auc = 8121 and test_auc = 0.7787
-model = vgg.to(device)
-
-# %%
-
-# custom_nn = NeuralNetwork()
-# model = custom_nn.to(device)
-# count_trainable_parameters(model)
-
-# defining the optimizer
-optimizer = Adam(model.parameters(), lr=0.00001)
-
-# defining the loss function
-criterion = BCEWithLogitsLoss()
-criterion = criterion.to(device)
-
-# %%
-
-train(train_dataloader=training_generator,
-    validation_dataloader=validation_generator,
-    model=model,
-    loss_fn=criterion,
-    optimizer=optimizer,
-    max_epochs=100,
-    early_stopping_epochs=10
-    )
-
-test(dataloader=test_generator,
-    model=model,
-    loss_fn=criterion)
-
-# %%
-from src.models.neural_network import NeuralNetwork
-custom_nn = NeuralNetwork()
-model = custom_nn.to(device)
-print(model)
-count_trainable_parameters(model)
-MODEL_NAME = 'experiment_01_20210429_baseline_bn_2cnn'
-
-optimizer = RMSprop(model.parameters(), lr=0.0001)
-criterion = BCEWithLogitsLoss()
-criterion = criterion.to(device)
-
-train(train_dataloader=training_generator,
-    validation_dataloader=validation_generator,
-    model=model,
-    loss_fn=criterion,
-    optimizer=optimizer,
-    max_epochs=100,
-    early_stopping_epochs=10
-    )
-
-test(dataloader=test_generator,
-    model=model,
-    loss_fn=criterion)
-
-
+if __name__ == "__main__":
+    train_dataloader = None
+    run_shallow_cnn_experiment()
+    # TODO: fix global variable train_dataloader that doesnt work properly.
+    # TODO: fix model name to be dynamic
+    
 # ARCHITECTURE:
 # CNN_5x5_16_BN_RELU_MAXPOOL -> CNN_3x3_32_BN_RELU_MAXPOOL -> 2048 > 1024
 # data augmentation flip hor,vert and rot90,180 and 270. neigborhood sampling 5
