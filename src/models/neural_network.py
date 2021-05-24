@@ -13,7 +13,7 @@ class NeuralNetwork(Module):
     def __init__(self):
         super(NeuralNetwork, self).__init__()
         self.features = Sequential(
-            Conv2d(in_channels =1, out_channels =8, kernel_size=5, stride=1, padding=1),
+            Conv2d(in_channels =1, out_channels =8, kernel_size=3, stride=1, padding=1),
             BatchNorm2d(num_features=8),
             ReLU(inplace=True),
             MaxPool2d(2,2),
@@ -23,25 +23,26 @@ class NeuralNetwork(Module):
             ReLU(inplace=True),
             MaxPool2d(2,2),
             
-            # Conv2d(in_channels =16, out_channels =32, kernel_size=3, stride=1, padding=0),
-            # BatchNorm2d(num_features=32),
-            # ReLU(inplace=True),
-            # MaxPool2d(2,2),
-            # Conv2d(in_channels =64, out_channels =128, kernel_size=3, stride=1, padding=0),
-            # ReLU(inplace=True)
+            Conv2d(in_channels =16, out_channels =32, kernel_size=3, stride=1, padding=0),
+            BatchNorm2d(num_features=32),
+            ReLU(inplace=True),
+            MaxPool2d(2,2),
+            Conv2d(in_channels =32, out_channels =64, kernel_size=3, stride=1, padding=0),
+            ReLU(inplace=True)
         )
         self.avgpool = AdaptiveAvgPool2d(output_size=(8, 8))
         self.classifier = Sequential(
-            Linear(in_features=16*8*8, out_features=2048, bias=True),
+            # Remember changing the x.view() number as well. It needs to be flattenend!
+            Linear(in_features=64*8*8, out_features=2048, bias=True),
             ReLU(inplace=True),
             Dropout(p=0.5, inplace=False),
-            Linear(in_features=2048, out_features=1024, bias=True),
+            Linear(in_features=2048, out_features=2048, bias=True),
             ReLU(inplace=True),
             Dropout(p=0.5, inplace=False),
-            # Linear(in_features=1024, out_features=512, bias=True),
+            # Linear(in_features=2048, out_features=512, bias=True),
             # ReLU(inplace=True),
             # Dropout(p=0.5, inplace=False),
-            Linear(in_features=1024, out_features=1, bias=True)
+            Linear(in_features=2048, out_features=1, bias=True)
 
         )
 
@@ -49,6 +50,14 @@ class NeuralNetwork(Module):
         x = self.features(x)
         x = self.avgpool(x)
         # flattenning 
-        x = x.view(-1,16*8*8)
+        x = x.view(-1,64*8*8)
         logits = self.classifier(x)
         return logits
+
+def create_adapted_vgg11():
+    vgg = models.vgg11()
+    vgg.features[0] = Conv2d(1,64, 3, stride=1,padding=1)
+    vgg.classifier[0] = Linear(in_features=7*7*512, out_features=2048,bias=True)
+    vgg.classifier[3] = Linear(in_features=2048, out_features=2048,bias=True)
+    vgg.classifier[-1] = Linear(in_features=2048, out_features=1,bias=True)
+    return vgg

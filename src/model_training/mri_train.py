@@ -19,8 +19,9 @@ from torchvision.transforms import ToTensor, Lambda, Compose
 import torchvision.models as models
 
 from src.model_training.mri_dataset import MRIDataset
-from src.model_training.mri_train_test_split import train_test_split_by_subject
-from src.models.neural_network import NeuralNetwork
+# from src.model_training.mri_train_test_split import train_test_split_by_subject
+from src.data_preparation.train_test_split import train_test_split_by_subject
+from src.models.neural_network import NeuralNetwork,create_adapted_vgg11
 
 # %load_ext autoreload
 # %autoreload 2
@@ -30,19 +31,81 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using {} device".format(device))
 train_dataloader = None
 
-IMG_PATH = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/processed/coronal_50_25K_images_20210402/'
-MODELS_PATH =  '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/'
-MODEL_NAME = 'experiment_01_20210429'
+img_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/processed/coronal_50_25K_images_20210402/'
+# MODELS_PATH =  '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/'
+# MODEL_NAME = 'experiment_01_20210429'
 
 # %%
 
+def run_vgg_experiment():
+
+    model_name = '01_vgg11_classifier_2048_2048_coronal_50_old_augmentation_' + datetime.now().strftime("%m%d%Y_%H%M")
+    model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/'
+    image_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/processed/coronal_50_25K_images_20210402/'
+
+    model = load_model('vgg11')
+    optimizer,criterion,prepared_data = setup_experiment(model,image_path,lr=0.00001)
+    train_dataloader,validation_dataloader,test_dataloader,df_train_reference,df_validation_reference,df_test_reference = prepared_data
+
+    train(train_dataloader=train_dataloader,
+        validation_dataloader=validation_dataloader,
+        model=model,
+        loss_fn=criterion,
+        optimizer=optimizer,
+        max_epochs=100,
+        early_stopping_epochs=10,
+        model_name = model_name,
+        model_path=model_path,
+        image_path=img_path
+        )
+
+    model.load_state_dict(torch.load(model_path + model_name+'.pth'))
+    model.eval()
+    test(dataloader=test_dataloader,
+        model=model,
+        loss_fn=criterion)
+
+    compute_predictions_for_dataset(prepared_data,model,criterion,final_dataset_path)
+
+def run_shallow_cnn_experiment():
+
+    model_name = '01_shallow_cnn_coronal_50_old_augmentation_22052021'
+    model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/'
+    image_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/processed/coronal_50_25K_images_20210402/'
+    final_dataset_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/tabular/'
+    
+    model = load_model('shallow')
+    optimizer,criterion,prepared_data = setup_experiment(model,image_path,lr=0.0001)
+    train_dataloader,validation_dataloader,test_dataloader,df_train_reference,df_validation_reference,df_test_reference = prepared_data
+    train(train_dataloader=train_dataloader,
+        validation_dataloader=validation_dataloader,
+        model=model,
+        loss_fn=criterion,
+        optimizer=optimizer,
+        max_epochs=100,
+        early_stopping_epochs=10,
+        model_name = model_name,
+        model_path = model_path,
+        image_path = image_path
+        )
+    model.load_state_dict(torch.load(model_path + model_name +'.pth'))
+    model.eval()
+    test(dataloader=test_dataloader,
+        model=model,
+        loss_fn=criterion)
+
+    compute_predictions_for_dataset(prepared_data,model,criterion,final_dataset_path)
+    
 def train(train_dataloader,
             validation_dataloader, 
             model, 
             loss_fn, 
             optimizer,
             max_epochs=100,
-            early_stopping_epochs = 10):
+            early_stopping_epochs = 10,
+            model_name = 'experiment',
+            model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/',
+            image_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/processed/coronal_50_25K_images_20210402/'):
     train_losses = []
     validation_losses = []
     best_epoch = 0
@@ -63,9 +126,6 @@ def train(train_dataloader,
         print('\nEpoch {} took'.format(epoch+1),'%3.2f seconds' % (time.time() - t0))
         print('---------------------------------------------------------------------')
         
-        # TODO: save metrics in dataframe
-        # TODO: log in console instead of printing
-
         train_loss, validation_loss = train_metrics[0],validation_metrics[0]
         train_losses.append(train_loss)
         validation_losses.append(validation_loss)
@@ -84,15 +144,13 @@ def train(train_dataloader,
         if early_stopping_epochs > 0:
             if early_stopping_marker == early_stopping_epochs:
                 print("\nExiting training... It hit early stopping criteria of:",early_stopping_epochs,'epochs')
-                print("Saving model at:",MODELS_PATH)
-                # TODO: Save model with timestamp and small description of experiment.
-                torch.save(best_model_params, MODELS_PATH + MODEL_NAME + '.pth')
+                print("Saving model at:",model_path)
+                torch.save(best_model_params, model_path + model_name + '.pth')
                 break
 
         if (best_epoch) == max_epochs:
-            print("Saving model at:",MODELS_PATH,'\n')
-            # TODO: Save model with timestamp and small description of experiment.
-            torch.save(best_model_params, MODELS_PATH + MODEL_NAME + '.pth')
+            print("Saving model at:",model_path,'\n')
+            torch.save(best_model_params, model_path + model_name + '.pth')
 
     plt.plot(train_losses, label='Training loss')
     plt.plot(validation_losses, label='Validation loss')
@@ -103,8 +161,9 @@ def train(train_dataloader,
     print(f"Best metrics for validation set on Epoch {best_epoch}:")
     print_metrics(best_validation_metrics)
     print('-------------------------------\n')
+    return None
 
-def test(dataloader,model,loss_fn):
+def test(dataloader,model,loss_fn,skip_compute_metrics = False, return_predictions = False):
     size = len(dataloader.dataset)
     model.eval()
     test_loss, correct = 0, 0
@@ -118,18 +177,23 @@ def test(dataloader,model,loss_fn):
             # y = one_hot(y, num_classes)
             # y = y.view(-1,num_classes)
             y_pred = model(X)
+            y_predict_proba = torch.sigmoid(y_pred)
             y = y.type_as(y_pred)
 
             test_loss += loss_fn(y_pred, y).item()
             true_labels = torch.cat((true_labels,y),0)
             predicted_labels = torch.cat((predicted_labels,y_pred),0)
-    print("Performance for Test set:")
-    test_loss /= size
-    auc, accuracy, f1score, recall, precision,conf_mat = compute_metrics_binary(y_pred = predicted_labels,y_true = true_labels,threshold = 0.5,verbose=0)
-    test_metrics = test_loss, auc, accuracy, f1score, recall, precision,conf_mat
-    # TODO: save metrics in dataframe
-    # TODO: log in console instead of printing
-    print_metrics(test_metrics,validation_metrics = None)
+            y_predict_probs = torch.cat((y_predict_probs,y_pred),0)
+
+    if not skip_compute_metrics:
+        test_loss /= size
+        print("Performance for Test set:")
+        auc, accuracy, f1score, recall, precision,conf_mat = compute_metrics_binary(y_true = true_labels, y_pred = predicted_labels, y_pred_proba=y_predict_probs,threshold = 0.5,verbose=0)
+        test_metrics = test_loss, auc, accuracy, f1score, recall, precision,conf_mat
+        # TODO: save metrics in dataframe
+        print_metrics(test_metrics,validation_metrics = None)
+    if return_predictions:
+        return predicted_labels.cpu().detach().numpy(), y_predict_probs.cpu().detach().numpy()
 
 def train_one_epoch(dataloader, model, loss_fn, optimizer):
     size = len(dataloader.dataset)
@@ -204,8 +268,10 @@ def validate_one_epoch(dataloader, model, loss_fn, optimizer):
         
         return running_loss, auc, accuracy, f1score, recall, precision,conf_mat
 
-def compute_metrics_binary(y_pred:torch.Tensor,y_true:torch.Tensor,threshold = 0.5,verbose=0):
-    y_pred_proba = torch.sigmoid(y_pred)
+def compute_metrics_binary(y_true:torch.Tensor, y_pred:torch.Tensor, y_pred_proba:torch.Tensor = None,threshold = 0.5,verbose=0):
+    
+    if y_pred_proba is None:
+        y_pred_proba = torch.sigmoid(y_pred)
     y_pred_label = y_pred_proba
     y_pred_label[y_pred_proba >= threshold] = 1
     y_pred_label[y_pred_proba < threshold] = 0
@@ -265,24 +331,28 @@ def count_trainable_parameters(model):
     print("Total number of trainable parameters:",pp)
     # return pp
 
-def prepare_dataset_for_training(IMG_PATH,classes = ['AD','CN'],dataset_params = None):
+def prepare_dataset_for_training(img_path,classes = ['AD','CN'],dataset_params = None):
     
-    df_reference = pd.read_csv(IMG_PATH + "REFERENCE.csv")
+    df_reference = pd.read_csv(img_path + "REFERENCE.csv")
     df_reference = df_reference.query("MACRO_GROUP in @classes")
     
     df_reference.loc[df_reference['MACRO_GROUP'] == 'AD','MACRO_GROUP'] = 1
     df_reference.loc[df_reference['MACRO_GROUP'] == 'CN','MACRO_GROUP'] = 0
     df_reference.loc[df_reference['MACRO_GROUP'] == 'MCI','MACRO_GROUP'] = 2
 
-    df_reference = df_reference #.iloc[:1000]
+    df_reference = df_reference
 
     # Defining Dataset Generators
     df_train_reference, df_test_reference = train_test_split_by_subject(df_reference,test_size = 0.2,labels = [1,0],label_column = 'MACRO_GROUP')
     df_train_reference, df_validation_reference = train_test_split_by_subject(df_train_reference,test_size = 0.25,labels = [1,0],label_column = 'MACRO_GROUP')
 
-    df_train_reference = df_train_reference.query("not UNIQUE_IMAGE_ID.str.contains('flip') and not UNIQUE_IMAGE_ID.str.contains('rot')",engine='python').sort_values("IMAGE_DATA_ID")
+    # df_train_reference = df_train_reference.query("not UNIQUE_IMAGE_ID.str.contains('flip') and not UNIQUE_IMAGE_ID.str.contains('rot')",engine='python').sort_values("IMAGE_DATA_ID")
     df_validation_reference = df_validation_reference.query("not UNIQUE_IMAGE_ID.str.contains('flip') and not UNIQUE_IMAGE_ID.str.contains('rot') and UNIQUE_IMAGE_ID.str.contains('_50')",engine='python').sort_values("IMAGE_DATA_ID")
     df_test_reference = df_test_reference.query("not UNIQUE_IMAGE_ID.str.contains('flip') and not UNIQUE_IMAGE_ID.str.contains('rot') and UNIQUE_IMAGE_ID.str.contains('_50')",engine='python').sort_values("IMAGE_DATA_ID")
+
+    print("Train size:",df_train_reference.shape[0])
+    print("Validation size:",df_validation_reference.shape[0])
+    print("Test size:",df_test_reference.shape[0])
 
     # Parameters
     if dataset_params is None:
@@ -290,97 +360,72 @@ def prepare_dataset_for_training(IMG_PATH,classes = ['AD','CN'],dataset_params =
                 'shuffle': True,
                 'num_workers': 32}
 
-    training_set = MRIDataset(reference_table = df_train_reference,path=IMG_PATH)
+    training_set = MRIDataset(reference_table = df_train_reference,path=img_path)
     train_dataloader = DataLoader(training_set, **dataset_params)
 
-    validation_set = MRIDataset(reference_table = df_validation_reference,path=IMG_PATH)
+    validation_set = MRIDataset(reference_table = df_validation_reference,path=img_path)
     validation_dataloader = DataLoader(validation_set, **dataset_params)
 
-    test_set = MRIDataset(reference_table = df_test_reference,path=IMG_PATH)
+    test_set = MRIDataset(reference_table = df_test_reference,path=img_path)
     test_dataloader = DataLoader(test_set, **dataset_params)
-    return train_dataloader,validation_dataloader,test_dataloader
+    return train_dataloader,validation_dataloader,test_dataloader,df_train_reference,df_validation_reference,df_test_reference
 
-def run_vgg_experiment():
+def load_model(model_type='shallow'):
+    print("Loading untrained model...")
+    if model_type == 'vgg11':
+        vgg = create_adapted_vgg11()
+        model = vgg.to(device)
+    else:
+        custom_nn = NeuralNetwork()
+        model = custom_nn.to(device)
 
-    MODEL_NAME = 'vgg_' + datetime.now().strftime("%m.%d.%Y_%H.%M.%S") + '_vgg11_classifier_2048_2048'
-
-    vgg = models.vgg11()
-    vgg.features[0] = Conv2d(1,64, 3, stride=1,padding=1)
-    vgg.classifier[0] = Linear(in_features=7*7*512, out_features=2048,bias=True)
-    vgg.classifier[3] = Linear(in_features=2048, out_features=2048,bias=True)
-    vgg.classifier[-1] = Linear(in_features=2048, out_features=1,bias=True)
-    print(vgg)
-    print('')
-    print('')
-    model = vgg.to(device)
-    count_trainable_parameters(model)
-
-    optimizer = Adam(model.parameters(), lr=0.00001)
-
-    criterion = BCEWithLogitsLoss()
-    criterion = criterion.to(device)
-
-    dataset_params = {'batch_size': 16,
-            'shuffle': True,
-            'num_workers': 32}
-            
-    # if train_dataloader is None:
-    train_dataloader,validation_dataloader,test_dataloader = prepare_dataset_for_training(IMG_PATH,classes = ['AD','CN'],dataset_params=dataset_params)
-
-    train(train_dataloader=train_dataloader,
-        validation_dataloader=validation_dataloader,
-        model=model,
-        loss_fn=criterion,
-        optimizer=optimizer,
-        max_epochs=100,
-        early_stopping_epochs=10
-        )
-
-    test(dataloader=test_dataloader,
-        model=model,
-        loss_fn=criterion)
-
-def run_shallow_cnn_experiment():
-
-    MODEL_NAME = 'baseline_' + datetime.now().strftime("%m.%d.%Y_%H.%M.%S") + 'bn_2xConv_classifier_512_256'
-    custom_nn = NeuralNetwork()
-    model = custom_nn.to(device)
     print(model)
+    print('')
     count_trainable_parameters(model)
+    return model
 
-    optimizer = RMSprop(model.parameters(), lr=0.0001)
+def setup_experiment(model,image_path,batch_size=16,lr=0.0001):
+
+    print("Setting up experiment parameters...")
+    optimizer = RMSprop(model.parameters(), lr=lr)
     criterion = BCEWithLogitsLoss()
     criterion = criterion.to(device)
 
-    dataset_params = {'batch_size': 16,
-            'shuffle': True,
+    dataset_params = {'batch_size': batch_size,
+            'shuffle': False,
             'num_workers': 32}
             
-    # if train_dataloader is None:
-    train_dataloader,validation_dataloader,test_dataloader = prepare_dataset_for_training(IMG_PATH,classes = ['AD','CN'],dataset_params=dataset_params)
+    prepared_data = prepare_dataset_for_training(img_path ='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/processed/coronal_50_25K_images_20210402/' ,
+    classes = ['AD','CN'],
+    dataset_params=dataset_params)
+    return optimizer,criterion,prepared_data
 
-    train(train_dataloader=train_dataloader,
-        validation_dataloader=validation_dataloader,
+def compute_predictions_for_dataset(prepared_data, model,criterion,final_dataset_path):
+    train_dataloader,validation_dataloader,test_dataloader,df_train_reference,df_validation_reference,df_test_reference = prepared_data
+    
+    loaders = [prepared_data[0],prepared_data[1],prepared_data[2]]
+    datasets = [prepared_data[3],prepared_data[4],prepared_data[5]]
+
+    print("Saving predictions from trained model...")
+    for data_loader,df in zip (loaders,datasets):
+
+        predicted_labels,predict_probs = test(dataloader=test_dataloader,
         model=model,
         loss_fn=criterion,
-        optimizer=optimizer,
-        max_epochs=100,
-        early_stopping_epochs=10
-        )
-
-    test(dataloader=test_dataloader,
-        model=model,
-        loss_fn=criterion)
+        skip_compute_metrics=True,
+        return_predictions=True)
+        df['DL_PREDICTION'] = predicted_labels
+        df['DL_PREDICT_PROBA'] = predict_probs
+    df_reference_with_prediction = pd.concat(datasets)
+    df_reference_with_prediction.to_csv(final_dataset_path + 'MRI_REFERENCE_PREDICTIONS.csv')
+    print("Reference file with predictions saved at:",final_dataset_path + 'MRI_REFERENCE_PREDICTIONS.csv')
 
 # %%
-# TODO: create train object! 
 
 if __name__ == "__main__":
-    train_dataloader = None
     run_shallow_cnn_experiment()
-    # TODO: fix global variable train_dataloader that doesnt work properly.
-    # TODO: fix model name to be dynamic
-    
+    # run_vgg_experiment()
+
 # ARCHITECTURE:
 # CNN_5x5_16_BN_RELU_MAXPOOL -> CNN_3x3_32_BN_RELU_MAXPOOL -> 2048 > 1024
 # data augmentation flip hor,vert and rot90,180 and 270. neigborhood sampling 5
@@ -447,4 +492,3 @@ if __name__ == "__main__":
 #  [[41  6]
 #  [ 9 16]]
 
-# %%

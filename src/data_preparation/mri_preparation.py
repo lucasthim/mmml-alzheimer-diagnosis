@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import sys
 import argparse
 import time
 
@@ -8,69 +7,69 @@ import numpy as np
 import nibabel as nib
 import ants
 from deepbrain import Extractor
-
-# TODO: fix paths to remove sys.path.append
-sys.path.append("./../utils")
 import tensorflow as tf
+
+# import sys
+# sys.path.append("./../utils")
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and errors from TF. Need to use it carefully
 
-from base_mri import list_available_images, delete_useless_images, set_env_variables, load_mri, save_mri,save_batch_mri, create_file_name_from_path
+from src.utils.base_mri import list_available_images, delete_useless_images, set_env_variables, load_mri, save_mri,save_batch_mri, create_file_name_from_path
 from mri_augmentation import * 
 
-arg_parser = argparse.ArgumentParser(description='Executes Data Preparation for MR images. Steps include transforming the 3D image into a 2D slice and also a simple Data Augmentation (optional)')
+# arg_parser = argparse.ArgumentParser(description='Executes Data Preparation for MR images. Steps include transforming the 3D image into a 2D slice and also a simple Data Augmentation (optional)')
 
-arg_parser.add_argument('-i','--input',
-                    metavar='input',
-                    type=str,
-                    required=True,
-                    help='Input directory of the mri files')
+# arg_parser.add_argument('-i','--input',
+#                     metavar='input',
+#                     type=str,
+#                     required=True,
+#                     help='Input directory of the mri files')
 
-arg_parser.add_argument('-f','--format',
-                    metavar='format',
-                    type=str,
-                    default='.nii.gz',
-                    required=False,
-                    help='Format of the mri input files')
+# arg_parser.add_argument('-f','--format',
+#                     metavar='format',
+#                     type=str,
+#                     default='.nii.gz',
+#                     required=False,
+#                     help='Format of the mri input files')
 
-arg_parser.add_argument('-o','--output',
-                    metavar='output',
-                    type=str,
-                    required=True,
-                    help='Output directory of the mri files')
+# arg_parser.add_argument('-o','--output',
+#                     metavar='output',
+#                     type=str,
+#                     required=True,
+#                     help='Output directory of the mri files')
 
-arg_parser.add_argument('-or','--orientation',
-                    metavar='orientation',
-                    type=str,
-                    default='coronal',
-                    required=True,
-                    help='Orientation to cut the 3D MRI')
+# arg_parser.add_argument('-or','--orientation',
+#                     metavar='orientation',
+#                     type=str,
+#                     default='coronal',
+#                     required=True,
+#                     help='Orientation to cut the 3D MRI')
 
-arg_parser.add_argument('-s','--orientation_slice',
-                    metavar='orientation_slice',
-                    type=int,
-                    default=50,
-                    required=True,
-                    help='Slice to cut the 3D MRI')
+# arg_parser.add_argument('-s','--orientation_slice',
+#                     metavar='orientation_slice',
+#                     type=int,
+#                     default=50,
+#                     required=True,
+#                     help='Slice to cut the 3D MRI')
 
-arg_parser.add_argument('-a','--num_augmented_images',
-                    metavar='num_augmented_images',
-                    type=int,
-                    default=0,
-                    required=True,
-                    help='Number of augmented images. If equals to zero, no data augmentation is carried')
+# arg_parser.add_argument('-a','--num_augmented_images',
+#                     metavar='num_augmented_images',
+#                     type=int,
+#                     default=0,
+#                     required=True,
+#                     help='Number of augmented images. If equals to zero, no data augmentation is carried')
 
-arg_parser.add_argument('-r','--sampling_range',
-                    metavar='sampling_range',
-                    type=int,
-                    default=5,
-                    required=False,
-                    help='Range to sample for data augmentation')
+# arg_parser.add_argument('-r','--sampling_range',
+#                     metavar='sampling_range',
+#                     type=int,
+#                     default=5,
+#                     required=False,
+#                     help='Range to sample for data augmentation')
 
-args = arg_parser.parse_args()
+# args = arg_parser.parse_args()
 
 
-def execute_data_preparation(input_path,output_path,orientation,orientation_slice,num_augmented_images,sampling_range,file_format):
+def execute_mri_data_preparation(input_path,output_path,orientation = 'coronal',orientation_slice = 50,num_augmented_images = 5,sampling_range = 5,file_format = '.nii.gz'):
 
     '''
     Execute MRI preparation for training the deep learning model.
@@ -144,7 +143,7 @@ def execute_data_preparation(input_path,output_path,orientation,orientation_slic
     
     print("Creating new reference image table for prepared images...")
     prepared_images,_,_ = list_available_images(output_path,file_format='.npz',verbose=0)
-    create_images_reference_table(prepared_images,output_path = output_path)
+    create_reference_table(prepared_images,output_path = output_path)
     
     total_time = (time.time() - start) / 60.
     print('-------------------------------------------------------------')
@@ -156,7 +155,7 @@ def execute_data_preparation(input_path,output_path,orientation,orientation_slic
     print('-------------------------------------------------------------')
 
 def main():
-    execute_data_preparation(args.input,args.output,args.orientation,args.orientation_slice,args.num_augmented_images,args.sampling_range,args.format)
+    execute_mri_data_preparation(args.input,args.output,args.orientation,args.orientation_slice,args.num_augmented_images,args.sampling_range,args.format)
 
 if __name__ == '__main__':
     main()    

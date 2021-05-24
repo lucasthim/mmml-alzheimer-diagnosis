@@ -16,13 +16,14 @@ tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and errors from TF. Need to use it carefully
 
 from base_mri import *
+# from base_mri import *
 from deepbrain_skull_strip import deep_brain_skull_stripping
 from antspy_registration import register_image_with_atlas
 from mri_crop import crop_mri_at_center
 from mri_standardize import clip_and_normalize_mri
-from mri_label import label_image_files
+# from mri_label import label_image_files
 
-def execute_preprocessing(input_path,output_path,box,skip):
+def execute_preprocessing(input_path = None,output_path = None,images_to_process = None,box = 100,skip = 0,limit = 0):
     
     '''
     MRI Preprocessing pipeline. 
@@ -44,7 +45,11 @@ def execute_preprocessing(input_path,output_path,box,skip):
     
     output_path: path to save preprocessed MRIs.
     
+    images_to_process: custom list of images to preprocess.
+
     skip: amount of files to skip when executing preprocessing. This is to be used when reprocessing a batch of files that failed during execution.
+    
+    limit: max amount of files to process when executing preprocessing. This is to be used when reprocessing a batch of files that failed during execution.
     
     Example
     ----------
@@ -56,20 +61,31 @@ def execute_preprocessing(input_path,output_path,box,skip):
     set_env_variables()
     start = time.time()
 
-    images_to_process,_,_ = list_available_images(input_path)
+    if images_to_process is None:
+        images_to_process,_,_ = list_available_images(input_path)
     print('------------------------------------------------------------------------------------------------------------------------')
     print(f"Starting pre-processing (Labeling + Standardizing + Registration + Skull Stripping + Cropping) for {len(images_to_process)} images. This might take a while... =)")
-    print(f"Skipping {skip} images.")
+    print(f"Processing from  image {skip} to image {limit}.")
     print('------------------------------------------------------------------------------------------------------------------------')
 
+    if skip > 0 and limit > 0:
+        images_to_process = images_to_process[skip:limit]
+
+    elif skip > 0:
+        images_to_process = images_to_process[skip:]
+
+    elif limit > 0:
+        images_to_process = images_to_process[:limit]
+    
     if not os.path.exists(output_path):
         print("Creating output path... \n")
         os.makedirs(output_path)
     
     for ii,image_path in enumerate(images_to_process):
         
-        if ii < skip: continue
-        
+        # if ii < skip: continue
+        # if ii > limit: break
+
         start_img = time.time()
         input_image = load_mri(path=image_path)
         print('\n-------------------------------------------------------------------------------------------------------------------')
@@ -95,7 +111,7 @@ def execute_preprocessing(input_path,output_path,box,skip):
     
     print("Creating new reference image table for preprocessed images...")
     preprocessed_images,_,_ = list_available_images(output_path,file_format='.nii.gz',verbose=0)
-    create_images_reference_table(preprocessed_images,output_path = output_path)
+    create_reference_table(preprocessed_images,output_path = output_path)
     # label_image_files(preprocessed_images,file_format='.nii.gz')
     
     
@@ -108,42 +124,46 @@ def execute_preprocessing(input_path,output_path,box,skip):
     print('-------------------------------------------------------------')
     print('-------------------------------------------------------------')
 
+
 # %%
-def main():
-    execute_preprocessing(input_path=args.input, 
-                          output_path=args.output, 
-                          box=args.box,
-                          skip = args.skip)
+# def main():
+#     execute_preprocessing(input_path='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/raw/ADNI/', 
+#                           output_path='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/preprocessed/20210523/', 
+#                           box=100,
+#                           skip = 0,
+#                           limit = 0)
 
-arg_parser = argparse.ArgumentParser(description='Preprocess MR images.')
+# arg_parser = argparse.ArgumentParser(description='Preprocess MR images.')
 
-arg_parser.add_argument('-i','--input',
-                    metavar='input',
-                    type=str,
-                    required=True,
-                    help='Input directory of the nifti files.')
+# arg_parser.add_argument('-i','--input',
+#                     metavar='input',
+#                     type=str,
+#                     required=False,
+#                     default='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/raw/ADNI/',
+#                     help='Input directory of the nifti files.')
 
-arg_parser.add_argument('-o','--output',
-                    metavar='output',
-                    type=str,
-                    required=True,
-                    help='Output directory of the nifti files.')
+# arg_parser.add_argument('-o','--output',
+#                     metavar='output',
+#                     type=str,
+#                     required=False,
+#                     default='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/preprocessed/20210523/',
+#                     help='Output directory of the nifti files.')
 
-arg_parser.add_argument('-b','--box',
-                    dest='box',
-                    type=list,
-                    default=100,
-                    required=False,
-                    help='Box to crop brain image.')
+# arg_parser.add_argument('-b','--box',
+#                     dest='box',
+#                     type=list,
+#                     default=100,
+#                     required=False,
+#                     help='Box to crop brain image.')
 
-arg_parser.add_argument('-s','--skip',
-                    dest='skip',
-                    type=int,
-                    default=0,
-                    required=False,
-                    help='Amount of images to skip when executing preprocessing.')
+# arg_parser.add_argument('-s','--skip',
+#                     dest='skip',
+#                     type=int,
+#                     default=0,
+#                     required=False,
+#                     help='Amount of images to skip when executing preprocessing.')
 
-args = arg_parser.parse_args()
+# args = arg_parser.parse_args()
 
-if __name__ == '__main__':
-    main()    
+# if __name__ == '__main__':
+#     main()    
