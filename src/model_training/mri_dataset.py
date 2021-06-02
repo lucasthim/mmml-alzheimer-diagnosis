@@ -4,6 +4,7 @@ warnings.filterwarnings("ignore")
 from torch.utils.data import Dataset
 from torchvision import transforms, utils
 from src.utils.base_mri import load_mri
+import numpy as np
 
 class MRIDataset(Dataset):
 
@@ -37,9 +38,13 @@ class MRIDataset(Dataset):
           sample = self.reference_table.iloc[index]
 
           # Load data and get label
-          # X = torch.load('data/' + ID + '.pt')
           X = load_mri(path=self.path + sample['IMAGE_PATH'])
           
+          if (X.ravel() != X.ravel()).any():
+               X[X != X] = np.nanmin(X)
+          
+          if (X.ravel().sum() == 0):
+               print(f"Image {sample['IMAGE_PATH']} is all zeros!")
           # transforming to tensor and normalizing image between 0 and 1.
           X = X/X.max()
           y = sample[self.target_column]

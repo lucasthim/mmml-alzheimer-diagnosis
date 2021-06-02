@@ -1,149 +1,147 @@
-# %%
-import os
-from pathlib import Path
-import sys
-import argparse
-import time
-
+import pandas as pd
 import numpy as np
-import nibabel as nib
-import ants
-from deepbrain import Extractor
-import tensorflow as tf
+import argparse
 
-sys.path.append("./../utils")
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and errors from TF. Need to use it carefully
-
-from base_mri import *
-from deepbrain_skull_strip import deep_brain_skull_stripping
-from antspy_registration import register_image_with_atlas
-from mri_crop import crop_mri_at_center
-from mri_standardize import clip_and_normalize_mri
-from mri_label import label_image_files
-
-def execute_preprocessing(input_path,output_path,box,skip):
-    
-    '''
-    MRI Preprocessing pipeline. 
-    
-    Main steps:
-    
-    - MRI standardization
-    
-    - MRI Registration
-    
-    - MRI Skull Stripping
-    
-    - MRI Cropping at 100x100x100
-
-    Parameters
-    ----------
-    
-    input_path: path where raw MRIs are located.
-    
-    output_path: path to save preprocessed MRIs.
-    
-    skip: amount of files to skip when executing preprocessing. This is to be used when reprocessing a batch of files that failed during execution.
-    
-    Example
-    ----------
-    
-    python mri_preprocessing.py --input "/home/lucasthim1/mmml-alzheimer-diagnosis/data/mri/raw/ADNI" --output "/home/lucasthim1/mmml-alzheimer-diagnosis/data/mri/preprocessed/20210402" --skip 0
-        
-    '''   
-    
-    set_env_variables()
-    start = time.time()
-
-    images_to_process,_,_ = list_available_images(input_path)
-    print('------------------------------------------------------------------------------------------------------------------------')
-    print(f"Starting pre-processing (Labeling + Standardizing + Registration + Skull Stripping + Cropping) for {len(images_to_process)} images. This might take a while... =)")
-    print(f"Skipping {skip} images.")
-    print('------------------------------------------------------------------------------------------------------------------------')
-
-    if not os.path.exists(output_path):
-        print("Creating output path... \n")
-        os.makedirs(output_path)
-    
-    for ii,image_path in enumerate(images_to_process):
-        
-        if ii < skip: continue
-        
-        start_img = time.time()
-        input_image = load_mri(path=image_path)
-        print('\n-------------------------------------------------------------------------------------------------------------------')
-        print(f"Processing image ({ii+1}/{len(images_to_process)}):",image_path)
-
-        print("Standardizing image based on Atlas...")
-        standardized_image = clip_and_normalize_mri(input_image)
-
-        print("Registering image to Atlas...")
-        registered_image:ants.ANTsImage = register_image_with_atlas(standardized_image)
-        
-        print("Stripping skull from image...")
-        stripped_image:ants.ANTsImage = deep_brain_skull_stripping(image=registered_image, probability = 0.5,output_as_array=False)
-        
-        print("Cropping image with bounding box 100x100x100...")
-        cropped_image:ants.ANTsImage = crop_mri_at_center(image=stripped_image,cropping_box=box)
-
-        print("Saving final image...")
-        save_mri(image=cropped_image, output_path = output_path,name=create_file_name_from_path(image_path),file_format='.nii.gz')
-
-        total_time_img = (time.time() - start_img)
-        print(f'Process for image ({ii+1}/{len(images_to_process)}) took %.2f sec) \n' % total_time_img)
-    
-    print("Creating new reference image table for preprocessed images...")
-    preprocessed_images,_,_ = list_available_images(output_path,file_format='.nii.gz',verbose=0)
-    create_images_reference_table(preprocessed_images,output_path = output_path)
-    # label_image_files(preprocessed_images,file_format='.nii.gz')
-    
-    
-    total_time = (time.time() - start) / 60.
-    print('-------------------------------------------------------------')
-    print('-------------------------------------------------------------')
-    print('-------------------------------------------------------------')
-    print('All images pre processed! Process took %.2f min' % total_time)
-    print('-------------------------------------------------------------')
-    print('-------------------------------------------------------------')
-    print('-------------------------------------------------------------')
-
-# %%
-def main():
-    execute_preprocessing(input_path=args.input, 
-                          output_path=args.output, 
-                          box=args.box,
-                          skip = args.skip)
-
-arg_parser = argparse.ArgumentParser(description='Preprocess MR images.')
+arg_parser = argparse.ArgumentParser(description='Executes Data Preparation for Cognitive test data.')
 
 arg_parser.add_argument('-i','--input',
                     metavar='input',
                     type=str,
-                    required=True,
-                    help='Input directory of the nifti files.')
+                    required=False,
+                    default='/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/',
+                    help='Input directory of cognitive data')
 
 arg_parser.add_argument('-o','--output',
                     metavar='output',
                     type=str,
-                    required=True,
-                    help='Output directory of the nifti files.')
-
-arg_parser.add_argument('-b','--box',
-                    dest='box',
-                    type=list,
-                    default=100,
                     required=False,
-                    help='Box to crop brain image.')
+                    default='/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/',
+                    help='Output directory of cognitive data')
 
-arg_parser.add_argument('-s','--skip',
-                    dest='skip',
-                    type=int,
-                    default=0,
+arg_parser.add_argument('-e','--exclude',
+                    metavar='exclude_ecog_tests',
+                    type=bool,
                     required=False,
-                    help='Amount of images to skip when executing preprocessing.')
+                    default=True,
+                    help='Flag to exclude the everyday cognition tests.')
 
 args = arg_parser.parse_args()
 
+
+def execute_cognitive_data_preprocessing(input_path,output_path,exclude_ecog_tests=True):
+    
+    '''
+    
+    Prepare the cognitive tests data for classification based on the ADNIMERGE.csv file.
+
+    Main steps are:
+    
+    - Normalizing classes to CN, MCI and AD.
+    - Selecting only relevant data related to patient demographics and cognitive tests.
+    - Encode Race, Gender and Marital Status features.
+    - Encode Classes as: CN = 0, AD=1 and MCI=2.
+    - Exclude Everyday Cognition Tests (optional).
+
+    '''
+    print("Reading ADNIMERGE.csv file.")
+    df_adni_merge = pd.read_csv(input_path+'ADNIMERGE.csv',low_memory=False)
+    
+    # print("Dropping baseline columns.")
+    # baseline_cols = [x for x in df_adni_merge.columns if '_bl' in x and 'DX' not in x] + ['update_stamp']
+    # df_adni_merge.drop(baseline_cols,axis=1,inplace=True)
+
+    print("Normalizing classes.")
+    df_adni_merge = normalize_classes(df_adni_merge)
+
+    print("Selecting Cognitive Tests and Demographics data.")
+    df_adni_merge = select_cognitive_data(df_adni_merge)
+
+    df_adni_merge = df_adni_merge[~df_adni_merge['DX'].isnull()]
+
+    df_adni_merge.rename(inplace=True,
+        columns={
+        'PTRACCAT':'RACE',
+        'PTMARRY':'MARRIED',
+        'PTEDUCAT':'YEARS_EDUCATION',
+        'PTGENDER':'MALE',
+        'PTETHCAT':'HISPANIC',
+        'DX':'DIAGNOSIS',
+        'DX_bl':'DIAGNOSIS_BASELINE',
+        'PTID':'SUBJECT'
+    })
+
+    print("Encoding variables.")
+    df_adni_merge = encode_variables(df_adni_merge)
+
+    if exclude_ecog_tests:
+        print("Excluding Ecog tests.")
+        df_adni_merge = exclude_ecog(df_adni_merge)
+
+    print("Saving final data.")
+    df_adni_merge.to_csv(output_path + "COGNITIVE_DATA_PREPROCESSED.csv",index=False)
+
+def normalize_classes(df):
+
+    "Normalize diagnosis to CN,AD and MCI."
+
+    df.loc[df['DX'] == 'Dementia','DX'] = 'AD'
+    df.loc[df['DX_bl'] == 'LMCI','DX_bl'] = 'MCI'
+    df.loc[df['DX_bl'] == 'EMCI','DX_bl'] = 'MCI'
+    df.loc[df['DX_bl'] == 'SMC','DX_bl'] = 'CN'
+    return df
+    
+def select_cognitive_data(df):
+
+    neuropsychological_cols = ['CDRSB','ADAS11', 'ADAS13', 'ADASQ4', 'MMSE', 'RAVLT_immediate',
+    'RAVLT_learning', 'RAVLT_forgetting', 'RAVLT_perc_forgetting',
+    'LDELTOTAL', 'DIGITSCOR', 'TRABSCOR', 'FAQ', 'MOCA', 'EcogPtMem',
+    'EcogPtLang', 'EcogPtVisspat', 'EcogPtPlan', 'EcogPtOrgan',
+    'EcogPtDivatt', 'EcogPtTotal', 'EcogSPMem', 'EcogSPLang',
+    'EcogSPVisspat', 'EcogSPPlan', 'EcogSPOrgan', 'EcogSPDivatt','EcogSPTotal']
+
+    demographics_cols = ['AGE','PTGENDER', 'PTEDUCAT','PTETHCAT', 'PTRACCAT', 'PTMARRY']
+
+    id_cols = ['RID', 'PTID', 'VISCODE', 'SITE', 'COLPROT', 'ORIGPROT', 'EXAMDATE','IMAGEUID','DX','DX_bl']
+
+    return df[id_cols + demographics_cols + neuropsychological_cols]
+
+def encode_variables(df):
+    
+    "Encode Race, Gender, Marital Status and Diagnosis variables. CN = 0, AD = 1 and MCI = 2."
+
+    df.loc[df['RACE'].isin(["More than one",'Unkown','Unknown','Hawaiian/Other PI','Am Indian/Alaskan']),'RACE'] = 'Other races'
+    df['RACE_WHITE'] = (df['RACE'] == 'White').astype(int)
+    df['RACE_BLACK'] = (df['RACE'] == 'Black').astype(int)
+    df['RACE_ASIAN'] = (df['RACE'] == 'Asian').astype(int)
+
+    df.loc[df['HISPANIC'] == 'Not Hisp/Latino','HISPANIC'] = 0
+    df.loc[df['HISPANIC'] == 'Unknown','HISPANIC'] = 0
+    df.loc[df['HISPANIC'] == 'Hisp/Latino','HISPANIC'] = 1
+
+    df['IMAGEUID'] = df['IMAGEUID'].fillna(999999)
+    df['IMAGEUID'] = df['IMAGEUID'].astype(int)
+
+    df.loc[df['DIAGNOSIS'] == 'AD','DIAGNOSIS'] = 1
+    df.loc[df['DIAGNOSIS'] == 'CN','DIAGNOSIS'] = 0
+    df.loc[df['DIAGNOSIS'] == 'MCI','DIAGNOSIS'] = 2
+
+    df.loc[df['MALE'] == 'Male','MALE'] = 1
+    df.loc[df['MALE'] == 'Female','MALE'] = 0
+
+    df['WIDOWED'] = (df['MARRIED'] == 'Widowed').astype(int)
+    df['DIVORCED'] = (df['MARRIED'] == 'Divorced').astype(int)
+    df['NEVER_MARRIED'] = (df['MARRIED'] == 'Never married').astype(int)
+    df['MARRIED'] = (df['MARRIED'] == 'Married').astype(int)
+    return df
+
+def exclude_ecog(df):
+    ecog_cols = ['EcogPtMem', 'EcogPtLang', 'EcogPtVisspat', 'EcogPtPlan', 'EcogPtOrgan',
+    'EcogPtDivatt', 'EcogPtTotal', 'EcogSPMem', 'EcogSPLang',
+    'EcogSPVisspat', 'EcogSPPlan', 'EcogSPOrgan', 'EcogSPDivatt',
+    'EcogSPTotal','LDELTOTAL','DIGITSCOR']
+    df = df.drop(ecog_cols,axis=1)
+    return df
+
+
 if __name__ == '__main__':
-    main()    
+    execute_cognitive_data_preprocessing(args.input,args.output,args.exclude)

@@ -38,7 +38,6 @@ def run_tabular_data_experiment(df_adni_merge,
 
     '''
   
-  
     print("Setting up experiment...")
 
     base_experiment_params = {
@@ -52,6 +51,10 @@ def run_tabular_data_experiment(df_adni_merge,
     'verbose':0
     }
 
+    # TODO: import ENSEMBLE_REFERENCE and filter columns DATASET to get train,val and test sets.
+    # TODO: remove cross validation, unless its just for hyperparams tunning.
+    # WARNING: Validation and test sets should be the same as ensemble. Train set can contain more samples.
+    
     df_train, df_test = train_test_split_by_subject(df_adni_merge,test_size=0.2,label_column=label_column,labels=labels)
     base_experiment_params['data'] = df_train.drop(["SUBJECT",'DIAGNOSIS_BASELINE'],axis=1)
     base_experiment_params['test_data'] = df_test.drop(["SUBJECT",'DIAGNOSIS_BASELINE'],axis=1)

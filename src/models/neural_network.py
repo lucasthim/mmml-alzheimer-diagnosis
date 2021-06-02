@@ -27,22 +27,23 @@ class NeuralNetwork(Module):
             BatchNorm2d(num_features=32),
             ReLU(inplace=True),
             MaxPool2d(2,2),
+            
             Conv2d(in_channels =32, out_channels =64, kernel_size=3, stride=1, padding=0),
             ReLU(inplace=True)
         )
         self.avgpool = AdaptiveAvgPool2d(output_size=(8, 8))
         self.classifier = Sequential(
             # Remember changing the x.view() number as well. It needs to be flattenend!
-            Linear(in_features=64*8*8, out_features=2048, bias=True),
+            Linear(in_features=64*8*8, out_features=512, bias=True),
             ReLU(inplace=True),
-            Dropout(p=0.5, inplace=False),
-            Linear(in_features=2048, out_features=2048, bias=True),
+            # Dropout(p=0.5, inplace=False),
+            Linear(in_features=512, out_features=512, bias=True),
             ReLU(inplace=True),
-            Dropout(p=0.5, inplace=False),
-            # Linear(in_features=2048, out_features=512, bias=True),
+            # Dropout(p=0.5, inplace=False),
+            # Linear(in_features=512, out_features=512, bias=True),
             # ReLU(inplace=True),
             # Dropout(p=0.5, inplace=False),
-            Linear(in_features=2048, out_features=1, bias=True)
+            Linear(in_features=512, out_features=1, bias=True)
 
         )
 

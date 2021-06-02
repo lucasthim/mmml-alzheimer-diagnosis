@@ -186,15 +186,15 @@ class StratifiedSubjectKFold:
             rng.shuffle(subjects)
 
             n_subjects = subjects.shape[0]
-            fold_size = int(np.ceil(n_subjects / n_splits))
+            fold_size = int(np.ceil(n_subjects / self.n_splits))
 
-            subjects_by_fold = np.array_split(subjects,n_splits)
-            for split in range(n_splits):
+            subjects_by_fold = np.array_split(subjects,self.n_splits)
+            for split in range(self.n_splits):
                 fold_subjects = subjects_by_fold[split]
                 df_classes.loc[df_classes['SUBJECT'].isin(fold_subjects),'FOLD'] = split
 
         if self.return_indices:
-            for split in range(n_splits):
+            for split in range(self.n_splits):
                 train_index = df_classes.query("FOLD != @split").index
                 test_index = df_classes.query("FOLD == @split").index
                 yield train_index,test_index

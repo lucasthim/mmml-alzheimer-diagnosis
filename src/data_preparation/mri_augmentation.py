@@ -79,6 +79,8 @@ def generate_augmented_slice(image_2d:np.ndarray,orientation,orientation_slice)-
 
     A dictionary containing all the augmented images. The keys are the image names plus augmentation type and the values are the image objects.
     '''
+    # TODO:change these 5 augmentations for random rotation between -15 and +15 degrees.
+    # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.rotate.html
     
     img_rot_90 = np.rot90(image_2d, k=1, axes=(1,0)).copy()
     img_rot_180 = np.rot90(image_2d, k=2, axes=(1,0)).copy()

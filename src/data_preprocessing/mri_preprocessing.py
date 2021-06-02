@@ -15,7 +15,7 @@ sys.path.append("./../utils")
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and errors from TF. Need to use it carefully
 
-from base_mri import *
+from utils import *
 # from base_mri import *
 from deepbrain_skull_strip import deep_brain_skull_stripping
 from antspy_registration import register_image_with_atlas
@@ -23,7 +23,7 @@ from mri_crop import crop_mri_at_center
 from mri_standardize import clip_and_normalize_mri
 # from mri_label import label_image_files
 
-def execute_preprocessing(input_path = None,output_path = None,images_to_process = None,box = 100,skip = 0,limit = 0):
+def execute_preprocessing(input_path = None,output_path = None,images_to_process = None,box = 100,skip = 0,limit = 0,mri_reference_path = None,skip_skull_stripping=False):
     
     '''
     MRI Preprocessing pipeline. 
@@ -65,17 +65,19 @@ def execute_preprocessing(input_path = None,output_path = None,images_to_process
         images_to_process,_,_ = list_available_images(input_path)
     print('------------------------------------------------------------------------------------------------------------------------')
     print(f"Starting pre-processing (Labeling + Standardizing + Registration + Skull Stripping + Cropping) for {len(images_to_process)} images. This might take a while... =)")
-    print(f"Processing from  image {skip} to image {limit}.")
     print('------------------------------------------------------------------------------------------------------------------------')
 
     if skip > 0 and limit > 0:
         images_to_process = images_to_process[skip:limit]
+        print(f"Processing from  image {skip} to image {limit}.")
 
     elif skip > 0:
         images_to_process = images_to_process[skip:]
+        print(f"Processing from image {skip}.")
 
     elif limit > 0:
         images_to_process = images_to_process[:limit]
+        print(f"Processing up to image {limit}.")
     
     if not os.path.exists(output_path):
         print("Creating output path... \n")
@@ -83,9 +85,6 @@ def execute_preprocessing(input_path = None,output_path = None,images_to_process
     
     for ii,image_path in enumerate(images_to_process):
         
-        # if ii < skip: continue
-        # if ii > limit: break
-
         start_img = time.time()
         input_image = load_mri(path=image_path)
         print('\n-------------------------------------------------------------------------------------------------------------------')
@@ -97,21 +96,31 @@ def execute_preprocessing(input_path = None,output_path = None,images_to_process
         print("Registering image to Atlas...")
         registered_image:ants.ANTsImage = register_image_with_atlas(standardized_image)
         
-        print("Stripping skull from image...")
-        stripped_image:ants.ANTsImage = deep_brain_skull_stripping(image=registered_image, probability = 0.5,output_as_array=False)
-        
+        if not skip_skull_stripping:
+            print("Stripping skull from image...")
+            stripped_image:ants.ANTsImage = deep_brain_skull_stripping(image=registered_image, probability = 0.5,output_as_array=False)
+        else:
+            print("Skipping skull stripping step...")
+            stripped_image = registered_image
+
         print("Cropping image with bounding box 100x100x100...")
         cropped_image:ants.ANTsImage = crop_mri_at_center(image=stripped_image,cropping_box=box)
 
-        print("Saving final image...")
-        save_mri(image=cropped_image, output_path = output_path,name=create_file_name_from_path(image_path),file_format='.nii.gz')
-
+        print("Checking if image is usable...")
+        integrity_check = check_image_integrity(cropped_image)
+        if integrity_check:
+            print("Saving final image...")
+            save_mri(image=cropped_image, output_path = output_path,name=create_file_name_from_path(image_path),file_format='.nii.gz')
+        else:
+            print("Skipping current image because skull stripping process failed!")
+        
         total_time_img = (time.time() - start_img)
         print(f'Process for image ({ii+1}/{len(images_to_process)}) took %.2f sec) \n' % total_time_img)
     
     print("Creating new reference image table for preprocessed images...")
     preprocessed_images,_,_ = list_available_images(output_path,file_format='.nii.gz',verbose=0)
-    create_reference_table(preprocessed_images,output_path = output_path)
+
+    create_reference_table(preprocessed_images,output_path = output_path,previous_reference_file_path=mri_reference_path)
     # label_image_files(preprocessed_images,file_format='.nii.gz')
     
     
