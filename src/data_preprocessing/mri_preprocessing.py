@@ -11,13 +11,12 @@ import ants
 from deepbrain import Extractor
 import tensorflow as tf
 
-sys.path.append("./../utils")
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and errors from TF. Need to use it carefully
 
+sys.path.append("./../utils")
 from utils import *
 from base_mri import *
-
 from deepbrain_skull_strip import deep_brain_skull_stripping
 from antspy_registration import register_image_with_atlas
 from mri_crop import crop_mri_at_center
@@ -95,23 +94,23 @@ def execute_preprocessing(input_path = None,output_path = None,images_to_process
         standardized_image = clip_and_normalize_mri(input_image)
 
         print("Registering image to Atlas...")
-        registered_image:ants.ANTsImage = register_image_with_atlas(standardized_image)
+        registered_image: ants.ANTsImage = register_image_with_atlas(standardized_image)
         
         if not skip_skull_stripping:
             print("Stripping skull from image...")
-            stripped_image:ants.ANTsImage = deep_brain_skull_stripping(image=registered_image, probability = 0.5,output_as_array=False)
+            stripped_image: ants.ANTsImage = deep_brain_skull_stripping(image=registered_image, probability = 0.5,output_as_array=False)
         else:
             print("Skipping skull stripping step...")
             stripped_image = registered_image
 
         print("Cropping image with bounding box 100x100x100...")
-        cropped_image:ants.ANTsImage = crop_mri_at_center(image=stripped_image,cropping_box=box)
+        cropped_image: ants.ANTsImage = crop_mri_at_center(image=stripped_image,cropping_box=box)
 
         print("Checking if image is usable...")
         integrity_check = check_mri_integrity(cropped_image)
         if integrity_check:
             print("Saving final image...")
-            save_mri(image=cropped_image, output_path = output_path,name=create_file_name_from_path(image_path),file_format='.nii.gz')
+            save_mri(image=cropped_image, output_path = output_path,name= create_file_name_from_path(image_path),file_format='.nii.gz')
         else:
             print("Skipping current image because skull stripping process failed!")
         
@@ -135,14 +134,15 @@ def generate_metadata_for_preprocessed_images(output_path,mri_reference_path):
     create_reference_table(preprocessed_images,output_path = output_path,previous_reference_file_path=mri_reference_path)
     # label_image_files(preprocessed_images,file_format='.nii.gz')
     
-
 # %%
-# def main():
-#     execute_preprocessing(input_path='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/raw/ADNI/', 
-#                           output_path='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/preprocessed/20210523/', 
-#                           box=100,
-#                           skip = 0,
-#                           limit = 0)
+
+if __name__ == '__main__':
+    execute_preprocessing(input_path='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/raw/ADNI/', 
+                        #   output_path='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/preprocessed/20210523/', 
+                          output_path='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/preprocessed/20211002/', 
+                          box=100,
+                          skip = 0,
+                          limit = 0)
 
 # arg_parser = argparse.ArgumentParser(description='Preprocess MR images.')
 
@@ -176,8 +176,6 @@ def generate_metadata_for_preprocessed_images(output_path,mri_reference_path):
 
 # args = arg_parser.parse_args()
 
-# if __name__ == '__main__':
-#     main()    
 
 # %%
 

@@ -7,7 +7,7 @@ import numpy as np
 def execute_ensemble_preprocessing(preprocessed_cognitive_data_path,preprocessed_mri_raw_data_path,ensemble_data_output_path,classes=[1,0],how='inner'):
     ''' 
 
-    Execute preprocessing for the reference data that will be used in the ensemble.
+    Execute preprocessing for the reference data that will be used in the ensemble model.
 
     Main steps are:
     1. Remove duplicates from MRI reference (sometimes the same image is downloaded twice)
@@ -29,7 +29,7 @@ def execute_ensemble_preprocessing(preprocessed_cognitive_data_path,preprocessed
 
     print("Normalizing classes from both files...")
     df_ensemble = pd.merge(df_cog,df_mri[['SUBJECT','IMAGEUID','GROUP','MACRO_GROUP','VISIT','ACQ_DATE']],on=['SUBJECT','IMAGEUID'],how=how)
-    if 'CN' in df_ensemble['MACRO_GROUP'].unique() or 'AD' in df_ensemble['MACRO_GROUP'].unique() :
+    if 'CN' in df_ensemble['MACRO_GROUP'].unique() or 'AD' in df_ensemble['MACRO_GROUP'].unique() or 'MCI' in df_ensemble['MACRO_GROUP'].unique() :
         df_ensemble['MACRO_GROUP'].replace({'AD':1,'CN':0,'MCI':2},inplace=True)
     print("Initial data merged!")
     
