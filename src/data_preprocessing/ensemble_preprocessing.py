@@ -6,7 +6,7 @@ import numpy as np
 # %%
 def execute_ensemble_preprocessing(preprocessed_cognitive_data_path,preprocessed_mri_raw_data_path,ensemble_data_output_path,classes=[1,0],how='inner'):
     ''' 
-    
+
     Execute preprocessing for the reference data that will be used in the ensemble.
 
     Main steps are:
@@ -40,11 +40,12 @@ def execute_ensemble_preprocessing(preprocessed_cognitive_data_path,preprocessed
     return df_ensemble,df_cog,df_mri
 
 def check_duplicates(df_mri): 
-    duplicated = df_mri[['SUBJECT','IMAGEUID']].duplicated(keep=False)
+    duplicated = df_mri[['SUBJECT','IMAGEUID']].duplicated(keep='first')
+    print(f"Found {duplicated.sum()} duplicates!")
     return df_mri[duplicated].shape[0] > 0
 
 def remove_duplicates(df_mri):
-    duplicated = df_mri[['SUBJECT','IMAGEUID']].duplicated(keep=False)
+    duplicated = df_mri[['SUBJECT','IMAGEUID']].duplicated(keep='first')
     return df_mri[~duplicated]
 
 def mark_conflicting_diagnosis(df_ensemble):
@@ -57,10 +58,9 @@ def mark_conflicting_diagnosis(df_ensemble):
 # %%
 if __name__ == '__main__':
     preprocessed_cognitive_data_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/COGNITIVE_DATA_PREPROCESSED.csv'
-    preprocessed_mri_raw_data_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/RAW_MRI_REFERENCE.csv'
+    preprocessed_mri_raw_data_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/PREPROCESSED_MRI_REFERENCE.csv'
     classes = [0,1]
-    ensemble_data_output_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/ENSEMBLE_REFERENCE.csv'
-
+    ensemble_data_output_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv'
     df_ensemble,df_cog,df_mri = execute_ensemble_preprocessing(preprocessed_cognitive_data_path,preprocessed_mri_raw_data_path,classes = classes,ensemble_data_output_path=ensemble_data_output_path)
 
 # %%

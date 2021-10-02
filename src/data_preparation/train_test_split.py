@@ -29,7 +29,7 @@ def train_test_split_by_subject(df,test_size = 0.3,labels = ['AD','CN'],label_co
     train = []
     test = []
     df_classes = df[df[label_column].isin(labels)]
-    rng = np.random.default_rng(random_seed)
+    rng = np.random.default_rng(seed = random_seed)
     patients_by_class = []
 
     for label in labels:
@@ -57,7 +57,7 @@ def train_test_split_by_subject(df,test_size = 0.3,labels = ['AD','CN'],label_co
         train.append(df_train_cl)
         test.append(df_test_cl)
 
-    df_train = pd.concat(train).sample(frac=1).reset_index(drop=True).query(label_column + " in @labels")
-    df_test = pd.concat(test).sample(frac=1).reset_index(drop=True).query(label_column + " in @labels")
+    df_train = pd.concat(train).reset_index(drop=True).query(label_column + " in @labels")
+    df_test = pd.concat(test).reset_index(drop=True).query(label_column + " in @labels")
 
     return df_train,df_test

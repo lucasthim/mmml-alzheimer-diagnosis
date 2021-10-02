@@ -16,7 +16,8 @@ tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and errors from TF. Need to use it carefully
 
 from utils import *
-# from base_mri import *
+from base_mri import *
+
 from deepbrain_skull_strip import deep_brain_skull_stripping
 from antspy_registration import register_image_with_atlas
 from mri_crop import crop_mri_at_center
@@ -107,7 +108,7 @@ def execute_preprocessing(input_path = None,output_path = None,images_to_process
         cropped_image:ants.ANTsImage = crop_mri_at_center(image=stripped_image,cropping_box=box)
 
         print("Checking if image is usable...")
-        integrity_check = check_image_integrity(cropped_image)
+        integrity_check = check_mri_integrity(cropped_image)
         if integrity_check:
             print("Saving final image...")
             save_mri(image=cropped_image, output_path = output_path,name=create_file_name_from_path(image_path),file_format='.nii.gz')
@@ -118,11 +119,7 @@ def execute_preprocessing(input_path = None,output_path = None,images_to_process
         print(f'Process for image ({ii+1}/{len(images_to_process)}) took %.2f sec) \n' % total_time_img)
     
     print("Creating new reference image table for preprocessed images...")
-    preprocessed_images,_,_ = list_available_images(output_path,file_format='.nii.gz',verbose=0)
-
-    create_reference_table(preprocessed_images,output_path = output_path,previous_reference_file_path=mri_reference_path)
-    # label_image_files(preprocessed_images,file_format='.nii.gz')
-    
+    generate_metadata_for_preprocessed_images(output_path,mri_reference_path)
     
     total_time = (time.time() - start) / 60.
     print('-------------------------------------------------------------')
@@ -133,6 +130,11 @@ def execute_preprocessing(input_path = None,output_path = None,images_to_process
     print('-------------------------------------------------------------')
     print('-------------------------------------------------------------')
 
+def generate_metadata_for_preprocessed_images(output_path,mri_reference_path):
+    preprocessed_images,_,_ = list_available_images(output_path,file_format='.nii.gz',verbose=0)
+    create_reference_table(preprocessed_images,output_path = output_path,previous_reference_file_path=mri_reference_path)
+    # label_image_files(preprocessed_images,file_format='.nii.gz')
+    
 
 # %%
 # def main():
@@ -176,3 +178,7 @@ def execute_preprocessing(input_path = None,output_path = None,images_to_process
 
 # if __name__ == '__main__':
 #     main()    
+
+# %%
+
+# selected_images,available_images,masks_and_wrong_images = list_available_images(input_dir = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/raw/ADNI/',file_format = '.nii',verbose=1)

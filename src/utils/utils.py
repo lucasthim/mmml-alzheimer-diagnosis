@@ -89,7 +89,7 @@ def load_reference_table(path = "/home/lucasthim1/mmml-alzheimer-diagnosis/data/
         df['SUBJECT_IMAGE_ID'] = df['SUBJECT'] + "#" + df['IMAGE_DATA_ID'] 
     return df
 
-def create_reference_table(image_list,output_path,previous_reference_file_path = None) -> None:
+def create_reference_table(image_list,output_path,previous_reference_file_path = None,save=True) -> None:
     
     '''
     Create a new reference dataframe based on the current list of images.
@@ -115,21 +115,26 @@ def create_reference_table(image_list,output_path,previous_reference_file_path =
     image_references = create_image_references(image_list)
 
     df_image_path = pd.DataFrame(data = {
-        'SUBJECT_IMAGE_ID':[x[0] for x in image_references], 
-        'SUBJECT_ID':[x[1] for x in image_references], 
-        'IMAGE_DATA_ID':[x[2] for x in image_references], 
+        'SUBJECT_IMAGE_ID':[x[0] for x in image_references],
+        'SUBJECT_ID':[x[1] for x in image_references],
+        'IMAGE_DATA_ID':[x[2] for x in image_references],
         'IMAGE_PATH':[x[3] for x in image_references]})
     
     if previous_reference_file_path is not None:
         df_original_reference = load_reference_table(previous_reference_file_path)
+        
+        if 'SUBJECT_IMAGE_ID' in df_original_reference.columns: df_original_reference.drop('SUBJECT_IMAGE_ID',axis=1,inplace=True)
+        if 'IMAGE_PATH' in df_original_reference.columns: df_original_reference.drop('IMAGE_PATH',axis=1,inplace=True)
+
         df_reference = pd.merge(df_original_reference,df_image_path,how='left',on='IMAGE_DATA_ID')
     else:
         df_reference = df_image_path
     
     if not output_path.endswith('/'): output_path = output_path + '/'
-    df_reference['IMAGE_PATH'] = df_reference['IMAGE_PATH'].str.replace(output_path,'')
-    df_reference.to_csv(output_path + 'REFERENCE.csv',index=False)
-    print("Reference file saved at: ",output_path)
+    # df_reference['IMAGE_PATH'] = df_reference['IMAGE_PATH'].str.replace(output_path,'')
+    if save:
+        df_reference.to_csv(output_path + 'REFERENCE.csv',index=False)
+        print("Reference file saved at: ",output_path + 'REFERENCE.csv')
     return df_reference
 
 def create_image_references(imgs_list):
@@ -140,13 +145,18 @@ def create_image_references(imgs_list):
         img_id = 'I'+path.split('_I')[-1].split('_')[0]
         if '.' in img_id:
             img_id =  img_id.split('.')[0]
-        unique_image_id = 'I'+path.split('_I')[-1].split('.')[0]
+        img_id = img_id.replace('_MCI','').replace('_CN','').replace('_AD','').replace(' (1)','')
+        # unique_image_id = 'I'+path.split('_I')[-1].split('.')[0]
         
         patient_splits = path.split('/')[-1].split('_')
-        patient_id = patient_splits[1] + '_' + patient_splits[2] + '_' +patient_splits[3]
+        
+        if patient_splits[0] == 'ADNI':
+            patient_id = patient_splits[1] + '_' + patient_splits[2] + '_' +patient_splits[3]
+        else:
+            patient_id = patient_splits[0] + '_' + patient_splits[1] + '_' +patient_splits[2]
 
         unique_patient_image_id = patient_id + "#" + img_id
-        imgs.append((unique_patient_image_id,patient_id, unique_image_id, path))
+        imgs.append((unique_patient_image_id,patient_id, img_id, path))
 
     return imgs
 

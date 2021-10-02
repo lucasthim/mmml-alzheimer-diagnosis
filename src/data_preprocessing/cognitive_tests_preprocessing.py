@@ -2,32 +2,6 @@ import pandas as pd
 import numpy as np
 import argparse
 
-arg_parser = argparse.ArgumentParser(description='Executes Data Preparation for Cognitive test data.')
-
-arg_parser.add_argument('-i','--input',
-                    metavar='input',
-                    type=str,
-                    required=False,
-                    default='/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/',
-                    help='Input directory of cognitive data')
-
-arg_parser.add_argument('-o','--output',
-                    metavar='output',
-                    type=str,
-                    required=False,
-                    default='/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/',
-                    help='Output directory of cognitive data')
-
-arg_parser.add_argument('-e','--exclude',
-                    metavar='exclude_ecog_tests',
-                    type=bool,
-                    required=False,
-                    default=True,
-                    help='Flag to exclude the everyday cognition tests.')
-
-args = arg_parser.parse_args()
-
-
 def execute_cognitive_data_preprocessing(input_path,output_path,exclude_ecog_tests=True):
     
     '''
@@ -41,6 +15,8 @@ def execute_cognitive_data_preprocessing(input_path,output_path,exclude_ecog_tes
     - Encode Race, Gender and Marital Status features.
     - Encode Classes as: CN = 0, AD=1 and MCI=2.
     - Exclude Everyday Cognition Tests (optional).
+
+    Results saved to: <output_path>/COGNITIVE_DATA_PREPROCESSED.csv
 
     '''
     print("Reading ADNIMERGE.csv file.")
@@ -142,6 +118,30 @@ def exclude_ecog(df):
     df = df.drop(ecog_cols,axis=1)
     return df
 
+arg_parser = argparse.ArgumentParser(description='Executes Data Preparation for Cognitive test data.')
+
+arg_parser.add_argument('-i','--input',
+                    metavar='input',
+                    type=str,
+                    required=False,
+                    default='/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/',
+                    help='Input directory of cognitive data')
+
+arg_parser.add_argument('-o','--output',
+                    metavar='output',
+                    type=str,
+                    required=False,
+                    default='/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/',
+                    help='Output directory of cognitive data')
+
+arg_parser.add_argument('-e','--exclude',
+                    metavar='exclude_ecog_tests',
+                    type=bool,
+                    required=False,
+                    default=True,
+                    help='Flag to exclude the everyday cognition tests.')
+
+args = arg_parser.parse_args()
 
 if __name__ == '__main__':
     execute_cognitive_data_preprocessing(args.input,args.output,args.exclude)

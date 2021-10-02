@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 import ants
 
-def save_batch_mri(image_references:Union[np.ndarray, ants.ANTsImage],name:str = None,output_path:str = None,file_format:str = '.npz'):
+def save_batch_mri(image_references:Union[np.ndarray, ants.ANTsImage],name:str = None,output_path:str = None,file_format:str = '.npz',verbose=0):
 
     '''
 
@@ -27,9 +27,9 @@ def save_batch_mri(image_references:Union[np.ndarray, ants.ANTsImage],name:str =
 
     for key,img in image_references.items():
         mri_name = name + '_' + key 
-        save_mri(image = img,name = mri_name,output_path=output_path,file_format=file_format)
+        save_mri(image = img,name = mri_name,output_path=output_path,file_format=file_format,verbose=verbose)
  
-def save_mri(image:Union[np.ndarray, ants.ANTsImage],name:str = None,output_path:str = None,file_format:str = '.npz'):
+def save_mri(image:Union[np.ndarray, ants.ANTsImage],name:str = None,output_path:str = None,file_format:str = '.npz',verbose=1):
     
     '''
 
@@ -57,7 +57,8 @@ def save_mri(image:Union[np.ndarray, ants.ANTsImage],name:str = None,output_path
     elif file_format == '.nii.gz':
         if type(image) is not ants.ANTsImage: image = ants.from_numpy(image) 
         image.to_file(output_file_path)
-    print("Image saved at:",output_file_path)
+    if verbose > 0:
+        print("Image saved at:",output_file_path)
 
 def load_mri(path:str,as_ants=False):
     '''
@@ -77,7 +78,6 @@ def set_env_variables():
     os.environ['PATH'] =os.environ['PATH'] +  ":" + os.environ['ANTSPATH']
     os.environ['NIFTYREG_INSTALL'] = '/home/lucasthim1/niftyreg/niftyreg_install'
     os.environ['PATH'] = os.environ['PATH'] +  ":" + os.environ['NIFTYREG_INSTALL'] + '/bin'
-
 
 def check_mri_integrity(image:Union[np.ndarray, ants.ANTsImage]) -> bool:
     
