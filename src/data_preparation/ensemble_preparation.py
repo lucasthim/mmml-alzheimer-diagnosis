@@ -17,6 +17,18 @@ def execute_ensemble_preparation(ensemble_data_path,test_size=0.41,validation_si
     For example, MRI CNNs training can contain more images than the images aligned with the ensemble data. 
     The same holds true for cognitive tests data.
     
+    Parameters:
+    ------------
+    ensemble_data_path: path where the preprocessed ensemble data reference is located.
+
+    test_size: size of the test set. Has to be bigger than 0 and less than 1.
+
+    validation_size: size of the validation set. Has to be bigger than 0 and less than 1.
+
+    Results
+    ------------
+
+    Saves a prepared ensemble reference file with a DATASET flag (train, test,validation or nan)
     '''
 
     df_ensemble = pd.read_csv(ensemble_data_path)
@@ -34,7 +46,6 @@ def execute_ensemble_preparation(ensemble_data_path,test_size=0.41,validation_si
     df_test['DATASET'] = 'test'
 
     df_ensemble_processed = pd.concat([df_train,df_validation,df_test,df_ensemble.query("CONFLICT_DIAGNOSIS == True")])
-    df_ensemble_diff = df_ensemble
     df_ensemble_processed.to_csv(ensemble_data_path.replace('PREPROCESSED','PROCESSED'),index=False)
     
     return df_train,df_validation,df_test
@@ -43,6 +54,3 @@ def execute_ensemble_preparation(ensemble_data_path,test_size=0.41,validation_si
 if __name__ == '__main__':
     ensemble_data_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv'
     df_train,df_validation,df_test = execute_ensemble_preparation(ensemble_data_path,test_size=0.33,validation_size=0.25)
-
-
-# %%

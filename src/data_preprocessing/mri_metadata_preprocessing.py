@@ -115,7 +115,7 @@ arg_parser.add_argument('-t','--type',
                     type=str,
                     required=False,
                     default='raw',
-                    choices=['raw','preprocessed']
+                    choices=['raw','preprocessed'],
                     help='Indicate if it is processing the metadata before (raw) or after image preprocessing.')
 
 # %%

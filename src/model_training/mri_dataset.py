@@ -39,6 +39,8 @@ class MRIDataset(Dataset):
 
           # Load data and get label
           X = np.load(sample['IMAGE_PATH'])['arr_0']
+          # TODO: Write function to get 2d image from 3d here. slice and rotation will be applied here.
+          
           if (X.ravel() != X.ravel()).any():
                X[X != X] = np.nanmin(X)
           
@@ -48,3 +50,6 @@ class MRIDataset(Dataset):
           X = X/X.max()
           y = sample[self.target_column]
           return X, y
+
+# def generate_2d_image(image_3d:ants.ANTsImage,orientation,orientation_slice):
+#     pass

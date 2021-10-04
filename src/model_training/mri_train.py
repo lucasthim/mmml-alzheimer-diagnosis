@@ -599,6 +599,9 @@ if __name__ == "__main__":
     #                     experiment_params = {'lr':0.0001,
     #                                             'batch_size':16,
     #                                             'optimizer':'adam'})
+
+
+    
 # Best result so far...
 # dataset type: train
 # dataset size: (18756, 18)

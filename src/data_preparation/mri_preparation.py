@@ -41,7 +41,7 @@ def execute_mri_data_preparation(mri_reference_path,
  
     mri_reference_path: path of the preprocessed MRI reference file.
     
-    ensemble_reference_path: Ensemble reference file.
+    ensemble_reference_path: Ensemble reference file. Necessary to eliminate conflicting diagnosis cases.
 
     output_path: path to save the prepared images.
     
@@ -78,7 +78,7 @@ def execute_mri_data_preparation(mri_reference_path,
         os.makedirs(output_path)
 
     for ii,image_path in enumerate(images_to_process):
-        if ii == 3: break
+        # if ii == 3: break
         start_img = time.time()
         image_3d = load_mri(path=image_path,as_ants=True)
 
@@ -151,7 +151,7 @@ if __name__ == '__main__':
                                 num_augmented_images = 5,
                                 sampling_range = 3,
                                 file_format = '.nii.gz')
-    generate_metadata_for_processed_images(output_path,mri_reference_path)
+    # generate_metadata_for_processed_images(output_path,mri_reference_path)
 # %%
 
 # arg_parser = argparse.ArgumentParser(description='Executes Data Preparation for MR images. Steps include transforming the 3D image into a 2D slice and also a simple Data Augmentation (optional)')
