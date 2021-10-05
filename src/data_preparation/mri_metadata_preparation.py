@@ -1,9 +1,11 @@
+# %%
 import os
 import sys
 import time
 import random
 import argparse
 from pathlib import Path
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -13,6 +15,7 @@ sys.path.append("./../utils")
 from base_mri import *
 from utils import *
 
+# %%
 def execute_mri_metadata_preparation(mri_reference_path,
                                 ensemble_reference_path,
                                 output_path,
@@ -59,40 +62,60 @@ def execute_mri_metadata_preparation(mri_reference_path,
     invalid_images = df_ensemble_reference.query("CONFLICT_DIAGNOSIS == True")['IMAGEUID']
     invalid_images = ['I'+str(x) for x in invalid_images]
     df_mri_reference = df_mri_reference.query("IMAGE_DATA_ID not in @invalid_images")
-    images_to_process = df_mri_reference['IMAGEUID']
+    images_to_process = df_mri_reference['IMAGE_DATA_ID']
 
     if not os.path.exists(output_path):
         print("Creating output path... \n")
         os.makedirs(output_path)
-    
-    sampled_images = generate_augmented_slices(orientation_slice,sampling_range,num_sampled_images,num_preprocessed_images = images_to_process.shape[0])
-    df_mri_processed_reference = pd.DataFrame(columns=['IMAGEUID','orientation','orientation_slice','slice_num','rotation_angle'])
-    augmented_images_amount = (num_sampled_images + 1) * (num_of_image_rotations + 1)
-    new_images_list = int(images_to_process.tolist() * augmented_images_amount)
-    df_mri_processed_reference['IMAGEUID'] = new_images_list
+
+    print('----------------------------------------------------------------------------------------------------------------------------')
+    print(f"Executing MRI Reference preparation (Cutting 2D Slice + Data Augmentation) for {len(images_to_process)} images. This file will be used during CNNs training/test/validation.")
+    print('----------------------------------------------------------------------------------------------------------------------------')
+
+    df_mri_processed_reference = pd.DataFrame(columns=['IMAGE_DATA_ID','orientation','orientation_slice','slice_num','IMAGE_SLICE_ID'])
+
+    print("Creating 2d images and samples...")
+    df_sampled_images = generate_augmented_slices(orientation_slice,sampling_range,num_sampled_images,preprocessed_images = images_to_process)
+    df_mri_processed_reference['IMAGE_DATA_ID'] = df_sampled_images['IMAGE_DATA_ID'].copy()
+    df_mri_processed_reference['slice_num'] = df_sampled_images['slice_num'].copy()
+    df_mri_processed_reference = df_mri_processed_reference.explode('slice_num').reset_index(drop=True)
+
+    df_mri_processed_reference['IMAGE_SLICE_ID'] = df_mri_processed_reference['IMAGE_DATA_ID'] + '_' + df_mri_processed_reference['slice_num'].astype(str)
+    print("Creating 2d image rotations...")
+    df_rotated_images = generate_augmented_rotations(num_of_image_rotations=3,preprocessed_images=df_mri_processed_reference['IMAGE_SLICE_ID'])
+    df_mri_processed_reference = df_mri_processed_reference.merge(df_rotated_images,on='IMAGE_SLICE_ID')
+    df_mri_processed_reference = df_mri_processed_reference.explode('rotation_angle').reset_index(drop=True)
+
     df_mri_processed_reference['orientation'] = orientation
     df_mri_processed_reference['orientation_slice'] = orientation_slice
-    df_mri_processed_reference.sort_values(by='IMAGEUID',inplace=True)
-    # TODO: unfold sampled sliced and rotations here. Probably use pivot table. Or if it doesnt work, just loop through.
-    for ii,image_path in enumerate(images_to_process):
-        pass
-        augmented_2d_images = generate_augmented_images(orientation,orientation_slice,num_augmented_images,sampling_range,augmentation_type = 'neighborhood_sampling')
 
-def generate_augmented_slices(orientation_slice,sampling_range,num_sampled_images,num_preprocessed_images):
+    df_mri_reference = df_mri_processed_reference.merge(df_mri_reference,on='IMAGE_DATA_ID')
+    
+    now = datetime.now().strftime("%Y%m%d_%H%M")
+    reference_file_name = 'PROCESSED_MRI_REFERENCE_'+ now +'_' + orientation + '_' + str(orientation_slice) + '_samples_around_slice_' + str(num_sampled_images) +'_num_rotations_' + str(num_of_image_rotations) + '.csv'
+    
+    print("Creating new reference file for prepared images...")
+    
+    df_mri_processed_reference.to_csv(output_path+reference_file_name,index=False)
+    print("Processed MRI reference file saved at:",output_path+reference_file_name)
+    return output_path+reference_file_name
+
+def generate_augmented_slices(orientation_slice,sampling_range,num_sampled_images,preprocessed_images):
     random.seed(a=None, version=2)
     sampling_population = list(set(range(orientation_slice-sampling_range,orientation_slice+sampling_range+1)) - set([orientation_slice]))
-    samples = [(img,random.sample(population= sampling_population,k=num_sampled_images)+[orientation_slice]) for img in range(num_preprocessed_images)]
-    # samples = [item for sublist in samples for item in sublist]
-    return samples
+    samples = [(img,random.sample(population= sampling_population,k=num_sampled_images)+[orientation_slice]) for img in preprocessed_images]
+    df_samples  = pd.DataFrame(samples,columns=['IMAGE_DATA_ID','slice_num'])
+    return df_samples
 
-def generate_augmented_rotations(num_of_image_rotations,images_to_process):
+def generate_augmented_rotations(num_of_image_rotations,preprocessed_images):
     random.seed(a=None, version=2)
-    samples = [(img,random.sample(population= list(np.arange(-15,16,2)) ,k=num_of_image_rotations) + [0]) for img in images_to_process]
-    # samples = [item for sublist in samples for item in sublist]
-    return samples
+    samples = [(img,random.sample(population= list(np.arange(-15,16,2)) ,k=num_of_image_rotations) + [0]) for img in preprocessed_images]
+    df_samples  = pd.DataFrame(samples,columns=['IMAGE_SLICE_ID','rotation_angle'])
+    return df_samples
 
+# %%
 if __name__ == '__main__':
-    output_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/PROCESSED_MRI_REFERENCE.csv'
+    output_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/'
     mri_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/PREPROCESSED_MRI_REFERENCE.csv'
     ensemble_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv'
     
