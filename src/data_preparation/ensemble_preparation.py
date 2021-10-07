@@ -1,12 +1,9 @@
-# %%
 import pandas as pd
 import numpy as np
 
 from train_test_split import train_test_split_by_subject
 
-# %%
-
-def execute_ensemble_preparation(ensemble_data_path,test_size=0.41,validation_size=0.28):
+def execute_ensemble_preparation(ensemble_data_path,test_size=0.25,validation_size=0.25):
     
     '''
     Prepare ensemble data for training process by splitting the data between train, validation and test set.
@@ -34,8 +31,10 @@ def execute_ensemble_preparation(ensemble_data_path,test_size=0.41,validation_si
     df_ensemble = pd.read_csv(ensemble_data_path)
     print("Spliting ensemble data in train, validation and test...")
     df_ensemble.sort_values('SUBJECT',inplace=True)
-    df_train,df_validation = train_test_split_by_subject(df_ensemble.query("CONFLICT_DIAGNOSIS == False"),test_size = validation_size,labels = [0,1],label_column='DIAGNOSIS',random_seed=42)
-    df_train,df_test = train_test_split_by_subject(df_train,test_size = test_size,labels = [0,1],label_column='DIAGNOSIS',random_seed=42)
+    df_no_conflict = df_ensemble.query("CONFLICT_DIAGNOSIS == False")
+    df_train,df_validation = train_test_split_by_subject(df_no_conflict,test_size = validation_size,labels = [0,1],label_column='DIAGNOSIS',random_seed=42)
+    corrected_test_size = test_size * (df_no_conflict.shape[0]/df_train.shape[0])
+    df_train,df_test = train_test_split_by_subject(df_train,test_size = corrected_test_size,labels = [0,1],label_column='DIAGNOSIS',random_seed=42)
     print("Ensemble train size:",df_train.shape)
     print("Ensemble validation size:",df_validation.shape)
     print("Ensemble test size:",df_test.shape)
@@ -46,11 +45,13 @@ def execute_ensemble_preparation(ensemble_data_path,test_size=0.41,validation_si
     df_test['DATASET'] = 'test'
 
     df_ensemble_processed = pd.concat([df_train,df_validation,df_test,df_ensemble.query("CONFLICT_DIAGNOSIS == True")])
-    df_ensemble_processed.to_csv(ensemble_data_path.replace('PREPROCESSED','PROCESSED'),index=False)
-    
+    final_path = ensemble_data_path.replace('PREPROCESSED','PROCESSED')
+    df_ensemble_processed.to_csv(final_path,index=False)
+    print("Processed ensemble reference file saved at: ",final_path)
     return df_train,df_validation,df_test
 
-# %%
 if __name__ == '__main__':
-    ensemble_data_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv'
-    df_train,df_validation,df_test = execute_ensemble_preparation(ensemble_data_path,test_size=0.33,validation_size=0.25)
+    # ensemble_data_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv'
+    ensemble_data_path = '/home/lucasthim/mmml-alzheimer-diagnosis/data/PREPROCESSED_ENSEMBLE_REFERENCE.csv'
+    df_train,df_validation,df_test = execute_ensemble_preparation(ensemble_data_path,test_size=0.25,validation_size=0.25)
+

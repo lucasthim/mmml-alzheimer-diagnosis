@@ -1,4 +1,3 @@
-# %%
 import os
 import sys
 import time
@@ -10,12 +9,11 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-from mri_augmentation import * 
+from mri_augmentation import *
 sys.path.append("./../utils")
 from base_mri import *
 from utils import *
 
-# %%
 def execute_mri_metadata_preparation(mri_reference_path,
                                 ensemble_reference_path,
                                 output_path,
@@ -39,7 +37,7 @@ def execute_mri_metadata_preparation(mri_reference_path,
  
     mri_reference_path: path of the preprocessed MRI reference file.
     
-    ensemble_reference_path: Ensemble reference file. Necessary to eliminate conflicting diagnosis cases.
+    ensemble_reference_path: Processed ensemble reference file. Necessary to eliminate conflicting diagnosis cases and provide dataset information.
 
     output_path: path to save the metadata reference file.
     
@@ -59,8 +57,8 @@ def execute_mri_metadata_preparation(mri_reference_path,
     '''
     df_mri_reference = pd.read_csv(mri_reference_path)
     df_ensemble_reference = pd.read_csv(ensemble_reference_path)
-    invalid_images = df_ensemble_reference.query("CONFLICT_DIAGNOSIS == True")['IMAGEUID']
-    invalid_images = ['I'+str(x) for x in invalid_images]
+    df_ensemble_reference['IMAGE_DATA_ID'] = ['I'+str(x) for x in df_ensemble_reference['IMAGEUID']]
+    invalid_images = df_ensemble_reference.query("CONFLICT_DIAGNOSIS == True")['IMAGE_DATA_ID']
     df_mri_reference = df_mri_reference.query("IMAGE_DATA_ID not in @invalid_images")
     images_to_process = df_mri_reference['IMAGE_DATA_ID']
 
@@ -89,12 +87,14 @@ def execute_mri_metadata_preparation(mri_reference_path,
     df_mri_processed_reference['orientation'] = orientation
     df_mri_processed_reference['orientation_slice'] = orientation_slice
 
-    df_mri_reference = df_mri_processed_reference.merge(df_mri_reference,on='IMAGE_DATA_ID')
-    
+    print("Separating subjects by dataset (train,validation,test)...")
+    df_mri_processed_reference = df_mri_processed_reference.merge(df_mri_reference,on='IMAGE_DATA_ID')
+    df_mri_processed_reference = df_mri_processed_reference.merge(df_ensemble_reference[['IMAGE_DATA_ID','DATASET']],on='IMAGE_DATA_ID',how='left')
+
     now = datetime.now().strftime("%Y%m%d_%H%M")
     reference_file_name = 'PROCESSED_MRI_REFERENCE_'+ now +'_' + orientation + '_' + str(orientation_slice) + '_samples_around_slice_' + str(num_sampled_images) +'_num_rotations_' + str(num_of_image_rotations) + '.csv'
     
-    print("Creating new reference file for prepared images...")
+    print("Creating final reference file for prepared images...")
     
     df_mri_processed_reference.to_csv(output_path+reference_file_name,index=False)
     print("Processed MRI reference file saved at:",output_path+reference_file_name)
@@ -113,12 +113,14 @@ def generate_augmented_rotations(num_of_image_rotations,preprocessed_images):
     df_samples  = pd.DataFrame(samples,columns=['IMAGE_SLICE_ID','rotation_angle'])
     return df_samples
 
-# %%
 if __name__ == '__main__':
-    output_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/'
-    mri_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/PREPROCESSED_MRI_REFERENCE.csv'
-    ensemble_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv'
-    
+    # output_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/'
+    # mri_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/PREPROCESSED_MRI_REFERENCE.csv'
+    # ensemble_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv'
+    output_path = './../../data/'
+    mri_reference_path = './../../data/PREPROCESSED_MRI_REFERENCE.csv'
+    ensemble_reference_path = './../../data/PROCESSED_ENSEMBLE_REFERENCE.csv'
     execute_mri_metadata_preparation(mri_reference_path = mri_reference_path,
                                                                 ensemble_reference_path = ensemble_reference_path,
                                                                 output_path = output_path)
+

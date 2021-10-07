@@ -136,3 +136,44 @@ def sample_from_neighborhood(orientation_slice,sampling_range,num_augmented_imag
     neighbor_samples = list(set(range(orientation_slice-sampling_range,orientation_slice+sampling_range+1)) - set([orientation_slice]))
     samples = random.sample(neighbor_samples,k=num_augmented_images)
     return samples
+
+def slice_image(image_3d: ants.ANTsImage,orientation,orientation_slice):
+    
+    '''
+    
+    Slice a 3D image and create a 2D image.
+    
+    Since ANTsImage to Numpy convertion makes the image lose the reference, we rotate it some times to the correct the axis visualization.
+    
+    Axis orientation:
+    0 - Sagittal
+    1 - Coronal
+    2 - Axial
+    
+    Parameters
+    ----------
+    
+    
+    image_3d: 3D MRI object in memory
+    
+    orientation: Orientation to cut the image. Values can be "coronal", "sagittal" or "axial"
+    
+    orientation_slice: Point to slice the 3D image. Values range from 0 to 100. TODO: fix future bug if sampling_range is outside of the image
+    Returns
+    ----------
+    Returns a 2D image.
+    
+    '''
+    image_3d = image_3d.numpy()
+    if orientation == 'sagittal':
+        rot = np.rot90(image_3d, k=3, axes=(1,2)).copy()
+        rot = np.rot90(rot, k=2, axes=(0,2)).copy()
+        return rot[orientation_slice,:,:]
+    
+    elif orientation == 'coronal':
+        rot = np.rot90(image_3d, k=3, axes=(0,2)).copy()
+        return rot[:,orientation_slice,:]
+    
+    elif orientation == 'axial':
+        rot = np.rot90(image_3d, k=3, axes=(0,1)).copy()        
+        return rot[:,:,orientation_slice]
