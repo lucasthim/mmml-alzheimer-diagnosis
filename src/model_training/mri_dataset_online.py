@@ -4,6 +4,7 @@ warnings.filterwarnings("ignore")
 import numpy as np
 from scipy import ndimage
 from torch.utils.data import Dataset
+import ants
 
 class MRIDatasetOnline(Dataset):
 
@@ -39,7 +40,8 @@ class MRIDatasetOnline(Dataset):
         sample = self.reference_table.iloc[index]
 
         # Load data and get label
-        X = np.load(sample['IMAGE_PATH'])['arr_0']
+        # X = np.load(sample['IMAGE_PATH'],allow_pickle=True)['arr_0']
+        X = ants.image_read(sample['IMAGE_PATH']).numpy()
         
         X = self._slice_image(image_3d=X,orientation=sample['orientation'],orientation_slice=sample['slice_num'])
         X = self._rotate_image(X,rotation_angle=sample['rotation_angle'])
@@ -97,5 +99,5 @@ class MRIDatasetOnline(Dataset):
             rot = np.rot90(image_3d, k=3, axes=(0,1)).copy()        
             return rot[:,:,orientation_slice]
 
-    def _rotate_image(image_2d,rotation_angle):
+    def _rotate_image(self,image_2d,rotation_angle):
         return ndimage.rotate(image_2d, rotation_angle, reshape=False)
