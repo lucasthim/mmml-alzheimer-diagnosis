@@ -95,10 +95,10 @@ def execute_mri_metadata_preparation(mri_reference_path,
     reference_file_name = 'PROCESSED_MRI_REFERENCE_'+ now +'_' + orientation + '_' + str(orientation_slice) + '_samples_around_slice_' + str(num_sampled_images) +'_num_rotations_' + str(num_of_image_rotations) + '.csv'
     
     print("Creating final reference file for prepared images...")
-    
-    df_mri_processed_reference.to_csv(output_path+reference_file_name,index=False)
-    print("Processed MRI reference file saved at:",output_path+reference_file_name)
-    return output_path+reference_file_name
+    return df_mri_processed_reference
+    # df_mri_processed_reference.to_csv(output_path+reference_file_name,index=False)
+    # print("Processed MRI reference file saved at:",output_path+reference_file_name)
+    # return output_path+reference_file_name
 
 def generate_augmented_slices(orientation_slice,sampling_range,num_sampled_images,preprocessed_images):
     random.seed(a=None, version=2)
@@ -113,14 +113,13 @@ def generate_augmented_rotations(num_of_image_rotations,preprocessed_images):
     df_samples  = pd.DataFrame(samples,columns=['IMAGE_SLICE_ID','rotation_angle'])
     return df_samples
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
     # output_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/'
     # mri_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/PREPROCESSED_MRI_REFERENCE.csv'
     # ensemble_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv'
-    output_path = './../../data/'
-    mri_reference_path = './../../data/PREPROCESSED_MRI_REFERENCE.csv'
-    ensemble_reference_path = './../../data/PROCESSED_ENSEMBLE_REFERENCE.csv'
-    execute_mri_metadata_preparation(mri_reference_path = mri_reference_path,
-                                                                ensemble_reference_path = ensemble_reference_path,
-                                                                output_path = output_path)
-
+    # output_path = './../../data/'
+    # mri_reference_path = './../../data/PREPROCESSED_MRI_REFERENCE.csv'
+    # ensemble_reference_path = './../../data/PROCESSED_ENSEMBLE_REFERENCE.csv'
+    # df = execute_mri_metadata_preparation(mri_reference_path = mri_reference_path,
+    #                                                             ensemble_reference_path = ensemble_reference_path,
+    #                                                             output_path = output_path)
