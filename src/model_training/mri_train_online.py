@@ -108,7 +108,8 @@ def setup_experiment(model,classes,df_mri_reference,additional_experiment_params
 
     dataset_params = {'batch_size': additional_experiment_params['batch_size'],
             'shuffle': False,
-            'num_workers': 32}
+            'num_workers': 4,
+            'pin_memory':True}
     
     df_train_reference, df_validation_reference, df_test_reference = return_sets(df_mri_reference,classes)
 
