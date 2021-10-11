@@ -47,8 +47,8 @@ def save_mri(image:Union[np.ndarray, ants.ANTsImage],name:str = None,output_path
     file_format: file format of the image. Can be saved as a compressed numpy array (.npz) or a compressed Nifti image (.nii.gz)
 
     '''
-
-    output_file_path = output_path + '/' + name + file_format
+    if not output_path.endswith('/'): output_path = output_path + '/'
+    output_file_path = output_path + name + file_format
     
     if file_format  == '.npz':
         if type(image) is not np.ndarray: image = image.numpy()
