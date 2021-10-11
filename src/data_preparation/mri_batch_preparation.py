@@ -54,7 +54,7 @@ def execute_mri_batch_preparation(mri_reference_path,
     df_ensemble_reference = pd.read_csv(ensemble_reference_path)
     df_ensemble_reference['IMAGE_DATA_ID'] = ['I'+str(x) for x in df_ensemble_reference['IMAGEUID']]
     invalid_images = df_ensemble_reference.query("CONFLICT_DIAGNOSIS == True")['IMAGE_DATA_ID']
-    df_mri_reference = df_mri_reference.query("IMAGE_DATA_ID not in @invalid_images")
+    df_mri_reference = df_mri_reference.query("IMAGE_DATA_ID not in @invalid_images").reset_index(drop=True)
     images_to_process = df_mri_reference['IMAGE_DATA_ID']
 
     if not os.path.exists(output_path):
@@ -76,22 +76,28 @@ def execute_mri_batch_preparation(mri_reference_path,
             print(f"Generating 2D {orientation} slices for image {image_id}...")
             slice_objects = generate_slices(image_id,image_path,orientation,slices)
             
-            print(f"Saving {orientation} slices for image {image_id}...")
+            print(f"Saving {orientation} slices for image {image_id}...\n")
             slice_objects = save_slices(slice_objects, output_path)
             
             slices_list.extend(slice_objects)
-    
+    print('')
+    print('Consolidating reference file:')
     df_mri_processed_reference = pd.DataFrame(slices_list)
+    df_mri_reference.drop("IMAGE_PATH",axis=1,inplace=True)
+    df_mri_processed_reference = df_mri_processed_reference.merge(df_mri_reference,on='IMAGE_DATA_ID')
 
     print("Separating subjects by dataset (train,validation,test)...")
     df_mri_processed_reference = df_mri_processed_reference.merge(df_ensemble_reference[['IMAGE_DATA_ID','DATASET']],on='IMAGE_DATA_ID',how='left')
 
+    print("Saving reference file...")
     now = datetime.now().strftime("%Y%m%d_%H%M")
     reference_file_name = 'PROCESSED_MRI_REFERENCE_'+ now + '.csv'
-    print("Creating final reference file for prepared images...")
-    
-    df_mri_processed_reference.to_csv(output_path+reference_file_name,index=False)
-    print("Processed MRI reference file saved at:",output_path+reference_file_name)
+    mri_reference_path = mri_reference_path.replace("PREPROCESSED_MRI_REFERENCE.csv",'')
+    df_mri_processed_reference = df_mri_processed_reference[[ 'SUBJECT','IMAGE_DATA_ID', 'ORIENTATION', 'SLICE',
+       'VALID_IMAGE', 'GROUP', 'MACRO_GROUP','SEX', 'AGE',
+       'IMAGE_PATH', 'ORIGINAL_IMAGE_PATH', 'DATASET']]
+    df_mri_processed_reference.to_csv(mri_reference_path+reference_file_name,index=False)
+    print("Processed MRI reference file saved at:",mri_reference_path+reference_file_name)
     
     return output_path+reference_file_name
 
@@ -134,7 +140,7 @@ def generate_slices(image_id,image_path,orientation,slice_indices):
     else:
         raise ("Invalid orientation option. Choose one from: sagittal,coronal,axial.")
 
-def slice_axial(image_id, image_path, orientation, slice_indices, image_3d, slice_objects):
+def slice_axial(image_id, image_path, orientation, slice_indices, image_3d):
     '''
     Return 2d slices for axial orientation with some metadata info.
 
@@ -194,11 +200,27 @@ def save_slices(slices, output_path):
     '''
     if not output_path.endswith('/'): output_path = output_path + '/'
     output = output_path + slices[0]['IMAGE_DATA_ID']
+    if not os.path.exists(output): os.makedirs(output)
+
     for slice in slices:
         slice_num = str(slice['SLICE']) if slice['SLICE'] < 10 else '0'+str(slice['SLICE'])
         mri_name = slice['ORIENTATION'] + '_' + slice_num
-        save_mri(image = slice['SLICE_DATA'],name = mri_name,output_path=output,file_format='.npz',verbose=0)
+        slice['VALID_IMAGE'] = validate_slice(image=slice['SLICE_DATA'])
+        if slice['VALID_IMAGE']:
+           slice['IMAGE_PATH'] = save_mri(image = slice['SLICE_DATA'],name = mri_name,output_path=output,file_format='.npz',verbose=0)
+        else:
+            print(f"Slice {mri_name} of image {slice['IMAGE_DATA_ID']} is not valid, skipping save.")
         del slice['SLICE_DATA']
+
+    return slices
+
+def validate_slice(image):
+    if (image.ravel() != image.ravel()).any():
+               image[image != image] = np.nanmin(image)
+          
+    if (image.ravel().sum() == 0):
+        return False
+    return True
 
 def generate_augmented_rotations(num_of_image_rotations,preprocessed_images):
     random.seed(a=None, version=2)

@@ -5,7 +5,7 @@ import ants
 import numpy as np
 from scipy import ndimage
 from torch.utils.data import Dataset
-from torchvision.transforms import as T
+from torchvision import transforms as T
 
 class MRIDatasetOnline(Dataset):
 

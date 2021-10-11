@@ -59,6 +59,7 @@ def save_mri(image:Union[np.ndarray, ants.ANTsImage],name:str = None,output_path
         image.to_file(output_file_path)
     if verbose > 0:
         print("Image saved at:",output_file_path)
+    return output_file_path
 
 def load_mri(path:str,as_ants=False):
     '''
