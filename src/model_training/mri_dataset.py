@@ -1,8 +1,9 @@
 import warnings
 warnings.filterwarnings("ignore")
 
+from scipy import ndimage
 from torch.utils.data import Dataset
-from torchvision import transforms, utils
+from torchvision import transforms as T
 
 import numpy as np
 
@@ -12,7 +13,7 @@ class MRIDataset(Dataset):
      Builds a dataset loader component for PyTorch with the MRIs based on the filepath.
      '''
 
-     def __init__(self, reference_table,target_column = 'MACRO_GROUP',path='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/processed/coronal_50_25K_images_20210329/'):
+     def __init__(self, reference_table,target_column = 'MACRO_GROUP'):
           
           '''
           Initialization of the component
@@ -25,8 +26,12 @@ class MRIDataset(Dataset):
           '''
           self.target_column = target_column
           self.reference_table = reference_table
-          self.path = path
-
+          # self.transform_train = self.T.Compose([
+          #      transforms.RandomCrop(32, padding=4),
+          #      transforms.RandomRotation(degrees=15),
+          #      transforms.ToTensor(),
+          #      transforms.Normalize(rgb_mean, rgb_std),
+          # ])
      def __len__(self):
           'Denotes the total number of samples'
           return self.reference_table.shape[0]
@@ -39,17 +44,10 @@ class MRIDataset(Dataset):
 
           # Load data and get label
           X = np.load(sample['IMAGE_PATH'])['arr_0']
-          # TODO: Write function to get 2d image from 3d here. slice and rotation will be applied here.
-          
-          if (X.ravel() != X.ravel()).any():
-               X[X != X] = np.nanmin(X)
-          
-          if (X.ravel().sum() == 0):
-               print(f"Image {sample['IMAGE_PATH']} is all zeros!")
-          # transforming to tensor and normalizing image between 0 and 1.
+
+          if 'ROTATION_ANGLE' in sample.index and sample['ROTATION_ANGLE'] != 0:
+               X = ndimage.rotate(X, sample['ROTATION_ANGLE'], reshape=False)
+                         
           X = X/X.max()
           y = sample[self.target_column]
           return X, y
-
-# def generate_2d_image(image_3d:ants.ANTsImage,orientation,orientation_slice):
-#     pass

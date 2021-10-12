@@ -1,4 +1,3 @@
-# %%
 import time
 from datetime import datetime
 
@@ -18,7 +17,6 @@ from torchvision import datasets
 from torchvision.transforms import ToTensor, Lambda, Compose
 import torchvision.models as models
 
-# %%
 from mri_dataset import MRIDataset
 
 import sys
@@ -35,18 +33,13 @@ from neural_network import NeuralNetwork,create_adapted_vgg11
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using {} device".format(device))
 
-# %%
-
 def run_cnn_experiment(model_type = 'vgg11',
                        model_name = 'vgg11_2048_2048',
+                       classes = ['AD','CN'],
+                       mri_reference = '',
+                       prediction_dataset_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/processed/',
                        model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/',
-                       image_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/processed/coronal_50_all_4155_images/',
-                       ensemble_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PROCESSED_ENSEMBLE_REFERENCE.csv',
-                       mri_orientation = 'coronal',
-                       mri_slice = 50,
-                       classes = [1,0],
-                       prediction_dataset_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/',
-                       experiment_params = None):
+                       additional_experiment_params = None):
     '''
     Run the MRI classification for AD or CN.
 
@@ -56,44 +49,45 @@ def run_cnn_experiment(model_type = 'vgg11',
     model_type: Neural network to be trained. Can be 'vgg11' or 'shallow'.
     
     model_name: Name to save the trained model.
+    
+    classes: classes to filter the dataset. options can be ['AD','CN','MCI']
 
+    mri_reference: Path or file of the MRI reference that will be used to filter the validation/test sets and classes. 
+
+    prediction_dataset_path: '/content/gdrive/MyDrive/Lucas_Thimoteo/mri/processed/',
+    
     model_path: Path to save the trained model.
-
-    image_path: path to load the images for the experiment.
-
-    ensemble_reference_path: Path to the ensemble reference file that will be used to filter the validation and test sets. 
     
-    mri_orientation: Orientation which the 2D slice was obtained. Can be 'coronal', 'sagittal' or 'axial',
-    
-    mri_slice: 2D slice that was extracted from the original 3D MRI,
-    
-    classes: classes of interest to filter the dataset,
-    
-    prediction_dataset_path: '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/',
-    
-    experiment_params: dictionary containing some experiments parameters such as lr (learning rate), batch_size and optimizer.
+    additional_experiment_params: dictionary containing some experiments parameters such as lr (learning rate), batch_size and optimizer.
 
     '''
 
-    if experiment_params is None:
-        experiment_params = {'lr':0.0001,
+    if additional_experiment_params is None:
+        additional_experiment_params = {'lr':0.0001,
                              'batch_size':16,
-                             'optimizer':'adam'}
-    
+                             'optimizer':'adam',
+                             'max_epochs':100,
+                             'early_stop':10,
+                             'prediction_threshold':0.5}
+    if type(mri_reference) == str:
+        df_mri_reference = pd.read_csv(mri_reference)
+    else:
+        df_mri_reference = mri_reference
+        
     model = load_model(model_type)
-    optimizer,criterion,prepared_data = setup_experiment(experiment_params,model,classes,image_path,ensemble_reference_path,mri_slice,mri_orientation)
+    model_name = model_name + datetime.now().strftime("%m%d%Y_%H%M")
+    
+    optimizer,criterion,prepared_data = setup_experiment(model,classes,df_mri_reference,additional_experiment_params)
 
-    model_name = model_name + '_'+ mri_orientation + datetime.now().strftime("%m%d%Y_%H%M")
     train(train_dataloader=prepared_data['train_dataloader'],
         validation_dataloader=prepared_data['validation_dataloader'],
         model=model,
         loss_fn=criterion,
         optimizer=optimizer,
-        max_epochs=100,
-        early_stopping_epochs=5,
+        max_epochs=additional_experiment_params['max_epochs'],
+        early_stopping_epochs=additional_experiment_params['early_stop'],
         model_name = model_name,
-        model_path=model_path,
-        image_path=image_path)
+        model_path=model_path)
 
     model.load_state_dict(torch.load(model_path + model_name+'.pth'))
     model.eval()
@@ -101,138 +95,36 @@ def run_cnn_experiment(model_type = 'vgg11',
         model=model,
         loss_fn=criterion)
 
-    compute_predictions_for_dataset(prepared_data,model,criterion,prediction_dataset_path,mri_orientation)
+    df_mri_reference = compute_predictions_for_dataset(prepared_data,model,criterion,threshold = additional_experiment_params['prediction_threshold'])
+    # df_mri_reference.to_csv(prediction_dataset_path + "PREDICTED_MRI_REFERENCE.csv")
+    return df_mri_reference
 
-def run_vgg_experiment():
-    orientation = 'coronal'
-    model_name = '02_vgg11_classifier_2048_2048_'+orientation + '_50_old_augmentation_' + datetime.now().strftime("%m%d%Y_%H%M")
-    model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/'
-    img_path = IMG_PATH
-    final_dataset_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/'
-    model = load_model('vgg11')
-    optimizer,criterion,prepared_data = setup_experiment(model,img_path,lr=0.00001)
-    train_dataloader,validation_dataloader,test_dataloader,_,_,_ = prepared_data
-
-    train(train_dataloader=train_dataloader,
-        validation_dataloader=validation_dataloader,
-        model=model,
-        loss_fn=criterion,
-        optimizer=optimizer,
-        max_epochs=100,
-        early_stopping_epochs=5,
-        model_name = model_name,
-        model_path=model_path,
-        image_path=img_path)
-
-    model.load_state_dict(torch.load(model_path + model_name+'.pth'))
-    model.eval()
-    test(dataloader=test_dataloader,
-        model=model,
-        loss_fn=criterion)
-
-    compute_predictions_for_dataset(prepared_data,model,criterion,final_dataset_path,orientation)
-
-def run_shallow_cnn_experiment():
-    orientation = 'coronal'
-    model_name = '02_shallow_cnn_'+ orientation +'_50_old_augmentation_22052021'
-    model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/'
-    img_path = IMG_PATH
-    final_dataset_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/'
-
-    model = load_model('shallow')
-    optimizer,criterion,prepared_data = setup_experiment(model,img_path,lr=0.0001)
-    train_dataloader,validation_dataloader,test_dataloader,_,_,_ = prepared_data
-    train(train_dataloader=train_dataloader,
-        validation_dataloader=validation_dataloader,
-        model=model,
-        loss_fn=criterion,
-        optimizer=optimizer,
-        max_epochs=100,
-        early_stopping_epochs=5,
-        model_name = model_name,
-        model_path = model_path,
-        image_path = img_path
-        )
-    model.load_state_dict(torch.load(model_path + model_name +'.pth'))
-    model.eval()
-    test(dataloader=test_dataloader,
-        model=model,
-        loss_fn=criterion)
-
-    compute_predictions_for_dataset(prepared_data,model,criterion,final_dataset_path,orientation)
-
-def setup_experiment(experiment_params,model,classes,image_path,ensemble_reference_path,mri_slice,mri_orientation):
+def setup_experiment(model,classes,df_mri_reference,additional_experiment_params):
 
     print("Setting up experiment parameters...")
 
-    if experiment_params['optimizer'] == 'adam':
-        optimizer = Adam(model.parameters(), lr=experiment_params['lr'])
-    elif experiment_params['optimizer'] == 'rmsprop':
-        optimizer = RMSprop(model.parameters(), lr=experiment_params['lr'])
+    if additional_experiment_params['optimizer'] == 'adam':
+        optimizer = Adam(model.parameters(), lr=additional_experiment_params['lr'])
+    elif additional_experiment_params['optimizer'] == 'rmsprop':
+        optimizer = RMSprop(model.parameters(), lr=additional_experiment_params['lr'])
     else:
-        optimizer = SGD(model.parameters(), lr=experiment_params['lr'])
+        optimizer = SGD(model.parameters(), lr=additional_experiment_params['lr'])
 
-    dataset_params = {'batch_size': experiment_params['batch_size'],
+    dataset_params = {'batch_size': additional_experiment_params['batch_size'],
             'shuffle': False,
-            'num_workers': 32}
-    prepared_data = prepare_dataset_for_training(img_path =image_path,ensemble_reference_path =  ensemble_reference_path,classes = classes,mri_slice = mri_slice,mri_orientation=mri_orientation, dataset_params=dataset_params)
+            'num_workers': 4,
+            'pin_memory':True}
     
-    pos_class = classes[0]
-    neg_class = classes[1]
-
-    positives = prepared_data['df_train_reference'].query("MACRO_GROUP == @pos_class").shape[0]
-    negatives = prepared_data['df_train_reference'].query("MACRO_GROUP == @neg_class").shape[0]
-    pos_weight = torch.ones([1]) * (neg_class/pos_class)
-
-    criterion = BCEWithLogitsLoss()
-    criterion = criterion.to(device)
-
-    return optimizer,criterion,prepared_data
-
-def prepare_dataset_for_training(img_path,ensemble_reference_path,classes,mri_orientation, mri_slice, dataset_params):
-    
-    df_reference = pd.read_csv(img_path + "REFERENCE.csv", engine='python')
-    df_reference.loc[df_reference['MACRO_GROUP'] == 'AD','MACRO_GROUP'] = 1
-    df_reference.loc[df_reference['MACRO_GROUP'] == 'CN','MACRO_GROUP'] = 0
-    df_reference.loc[df_reference['MACRO_GROUP'] == 'MCI','MACRO_GROUP'] = 2
-    df_reference = df_reference.query("MACRO_GROUP in @classes")
-    df_reference['IMAGE_NAME']  = [x.split('/')[-1] for x in df_reference['IMAGE_PATH']]
-    df_reference['IMAGE_PATH']  = img_path + df_reference['IMAGE_PATH']
-
-    df_ensemble_reference = pd.read_csv(ensemble_reference_path, engine='python')
-    df_ensemble_reference['IMAGE_DATA_ID'] = 'I' + df_ensemble_reference['IMAGEUID'].astype(str)
-    validation_images = df_ensemble_reference.query("DATASET == 'validation'")['IMAGE_DATA_ID'].unique()
-    test_images = df_ensemble_reference.query("DATASET == 'test'")['IMAGE_DATA_ID'].unique()
-    
-    df_validation_reference = df_reference.query("IMAGE_DATA_ID in @validation_images")
-    df_test_reference = df_reference.query("IMAGE_DATA_ID in @test_images")
-    df_train_reference = df_reference.query("IMAGE_DATA_ID not in @test_images and IMAGE_DATA_ID not in @validation_images")
-    
-    # df_reference = df_reference.query("SKIP_IMAGE == False")
-    # print(df_reference['SKIP_IMAGE'].sum())
-
-    # df_train_reference, df_test_reference = train_test_split_by_subject(df_reference,test_size = 0.2,labels = classes,label_column = 'MACRO_GROUP')
-    # df_train_reference, df_validation_reference = train_test_split_by_subject(df_train_reference,test_size = 0.25,labels = classes,label_column = 'MACRO_GROUP')
-    slice_filter = mri_orientation + '_' +str(mri_slice)
-
-    # TODO: Temporary, remove after all new images get uploaded
-    df_train_reference = df_validation_reference.query("not IMAGE_NAME.str.contains('rot')",engine='python').sort_values("IMAGE_DATA_ID")
-    
-    df_validation_reference = df_validation_reference.query("not IMAGE_NAME.str.contains('rot') and IMAGE_NAME.str.contains(@slice_filter)",engine='python').sort_values("IMAGE_DATA_ID")
-    df_test_reference = df_test_reference.query("not IMAGE_NAME.str.contains('rot') and IMAGE_NAME.str.contains(@slice_filter)",engine='python').sort_values("IMAGE_DATA_ID")
-
-    print("Train size:",df_train_reference.shape[0])
-    print("Validation size:",df_validation_reference.shape[0])
-    print("Test size:",df_test_reference.shape[0])
+    df_train_reference, df_validation_reference, df_test_reference = return_sets(df_mri_reference,classes)
 
     # Defining Dataset Generators
-    training_set = MRIDataset(reference_table = df_train_reference,path=img_path)
+    training_set = MRIDataset(reference_table = df_train_reference)
     train_dataloader = DataLoader(training_set, **dataset_params)
 
-    validation_set = MRIDataset(reference_table = df_validation_reference,path=img_path)
+    validation_set = MRIDataset(reference_table = df_validation_reference)
     validation_dataloader = DataLoader(validation_set, **dataset_params)
 
-    test_set = MRIDataset(reference_table = df_test_reference,path=img_path)
+    test_set = MRIDataset(reference_table = df_test_reference)
     test_dataloader = DataLoader(test_set, **dataset_params)
     prepared_data = {
         'train_dataloader':train_dataloader,
@@ -242,16 +134,53 @@ def prepare_dataset_for_training(img_path,ensemble_reference_path,classes,mri_or
         'df_validation_reference':df_validation_reference,
         'df_test_reference':df_test_reference
     }
-    return prepared_data
 
-def compute_predictions_for_dataset(prepared_data, model,criterion,final_dataset_path,orientation,threshold=0.5):
+    # pos_weight = torch.ones([1]) * (neg_class/pos_class)
+    criterion = BCEWithLogitsLoss()
+    criterion = criterion.to(device)
 
-    loaders = list(prepared_data.values())[:3]
-    datasets = list(prepared_data.values())[3:]
+    return optimizer,criterion,prepared_data
+
+def return_sets(df_mri_reference,classes):
+    if set(classes) == set(['AD','CN']):
+        df_mri_reference.loc[df_mri_reference['MACRO_GROUP'] == 'CN','MACRO_GROUP'] = 0
+        df_mri_reference.loc[df_mri_reference['MACRO_GROUP'] == 'AD','MACRO_GROUP'] = 1
+    elif set(classes) == set(['MCI','CN']):
+        df_mri_reference.loc[df_mri_reference['MACRO_GROUP'] == 'CN','MACRO_GROUP'] = 0
+        df_mri_reference.loc[df_mri_reference['MACRO_GROUP'] == 'MCI','MACRO_GROUP'] = 1
+    elif set(classes) == set(['MCI','AD']):
+        df_mri_reference.loc[df_mri_reference['MACRO_GROUP'] == 'MCI','MACRO_GROUP'] = 0
+        df_mri_reference.loc[df_mri_reference['MACRO_GROUP'] == 'AD','MACRO_GROUP'] = 1
+
+    df_mri_reference = df_mri_reference.loc[df_mri_reference['MACRO_GROUP'].isin([0,1]),:]
+
+    df_validation_reference = df_mri_reference.query("DATASET == 'validation' and SLICE == MAIN_SLICE")
+    df_test_reference = df_mri_reference.query("DATASET == 'test' and SLICE == MAIN_SLICE")
+    df_train_reference = df_mri_reference.query("DATASET not in ('validation','test')")
+
+    print("Train size:",df_train_reference.shape[0])
+    print("Validation size:",df_validation_reference.shape[0])
+    print("Test size:",df_test_reference.shape[0])
+    return df_train_reference, df_validation_reference, df_test_reference
+
+def compute_predictions_for_dataset(prepared_data, model,criterion,threshold=0.5):
+
+    loaders = [
+        prepared_data['train_dataloader'],
+        prepared_data['validation_dataloader'],
+        prepared_data['test_dataloader']
+    ]
+
+    datasets = [
+        prepared_data['df_train_reference'],
+        prepared_data['df_validation_reference'],
+        prepared_data['df_test_reference'],
+    ]
     dataset_types = ['train','validation','test']
+
     print("Saving predictions from trained model...")
     for dataset_type,data_loader,df in zip(dataset_types,loaders,datasets):
-        print('dataset type:',dataset_type)
+        print(f'Computing Predictions for {dataset_type} set.')
         print('dataset size:',df.shape)
         predict_probs = test(dataloader=data_loader,
         model=model,
@@ -259,13 +188,10 @@ def compute_predictions_for_dataset(prepared_data, model,criterion,final_dataset
         skip_compute_metrics=False,
         return_predictions=True)
         predicted_labels = predict_probs >= threshold
-        df['DL_PREDICTION_' + orientation] = predicted_labels
-        df['DL_PREDICT_PROBA_' + orientation] = predict_probs
-        df['DATASET'] = dataset_type
-        print(predict_probs.shape)
-    df_reference_with_prediction = pd.concat(datasets)
-    df_reference_with_prediction.to_csv(final_dataset_path + 'MRI_REFERENCE_PREDICTIONS_' + orientation + '.csv',index=False)
-    print("Reference file with predictions saved at:",final_dataset_path + 'MRI_REFERENCE_PREDICTIONS_' + orientation + '.csv')
+        df['CNN_PREDICTION' ] = predicted_labels
+        df['CNN_PREDICT_PROBA' ] = predict_probs
+
+    return pd.concat(datasets)
 
 def load_model(model_type='shallow'):
     print("Loading untrained model...")
@@ -289,8 +215,8 @@ def train(train_dataloader,
             max_epochs=100,
             early_stopping_epochs = 10,
             model_name = 'experiment',
-            model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/',
-            image_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/processed/coronal_50_all_4155_images/'):
+            model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/'):
+
     train_losses = []
     validation_losses = []
     best_epoch = 0
@@ -513,30 +439,9 @@ def count_trainable_parameters(model):
             nn = nn*s
         pp += nn
     print("Total number of trainable parameters:",pp)
+
+
     # return pp
-
-# %%
-
-if __name__ == "__main__":
-    print("----------------------------------------------------")
-    print("----------------------------------------------------")
-    print("----------------------------------------------------")
-    print("Coronal 50 experiment....")
-    print("----------------------------------------------------")
-    print("----------------------------------------------------")
-    print("----------------------------------------------------")
-    run_cnn_experiment(model_type = 'shallow',
-                       model_name = 'shallow_cnn',
-                       model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/',
-                       image_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/processed/coronal_50_67K_images_20210523/',
-                       ensemble_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PROCESSED_ENSEMBLE_REFERENCE.csv',
-                       mri_orientation = 'coronal',
-                       mri_slice = 50,
-                       classes = [1,0],
-                       prediction_dataset_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/',
-                       experiment_params = {'lr':0.0001,
-                                            'batch_size':32,
-                                            'optimizer':'adam'})
     # print("----------------------------------------------------")
     # print("----------------------------------------------------")
     # print("----------------------------------------------------")
