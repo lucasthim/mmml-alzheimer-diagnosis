@@ -18,6 +18,7 @@ from torchvision.transforms import ToTensor, Lambda, Compose
 import torchvision.models as models
 
 from mri_dataset import MRIDataset
+from mri_dataset_generation import generate_mri_dataset_reference
 
 import sys
 sys.path.append("./../data_preparation")
@@ -33,12 +34,62 @@ from neural_network import NeuralNetwork,create_adapted_vgg11
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using {} device".format(device))
 
-def run_cnn_experiment(model_type = 'vgg11',
+def run_mris_experiments(orientation = 'coronal',
+                          slices = list(range(45,56)),
+                          num_repeats = 3,
+                          model='shallow_cnn',
+                          classes=['AD','CN'],
+                          save_path = ''):
+
+    results = []
+    for ii in range(1,num_repeats+1):
+        for slice in slices:
+            print("\n--------------------------------------------------------------------")
+            print("--------------------------------------------------------------------")
+            print(f"Running {orientation} - slice:{slice} with no data augmentation.")
+            print("--------------------------------------------------------------------")
+            print("--------------------------------------------------------------------\n")
+            mri_config = {
+            'orientation':orientation,
+            'slice':slice,
+            'num_samples':0,
+            'num_rotations':0,
+            'sampling_range':3,
+            'mri_reference':'/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/PROCESSED_MRI_REFERENCE_ALL_ORIENTATIONS_20211012_2033.csv',
+            'output_path':'/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/experiments/',
+            }
+            df_ref = generate_mri_dataset_reference(mri_reference_path = mri_config['mri_reference'],
+                                output_path = mri_config['output_path'],
+                                orientation = mri_config['orientation'],
+                                orientation_slice = mri_config['slice'],
+                                num_sampled_images = mri_config['num_samples'],
+                                sampling_range = mri_config['sampling_range'],
+                                num_rotations = mri_config['num_rotations'],
+                                save_reference_file = False)
+            run_result = run_cnn_experiment(model = model,
+                        model_name = 'cnn_'+orientation+str(slice)+str(ii),
+                        classes = classes,
+                        mri_reference = df_ref,
+                        run_test = False,
+                        compute_predictions = False,
+                        prediction_dataset_path = '',
+                        model_path = '')
+            run_result['RUN_ID'] = orientation+str(slice)+str(ii)
+            results.append(run_result)
+
+    df_results = pd.concat(results)
+    if save_path != '' and save_path is not None:
+        df_results.to_csv(save_path,index=False)
+    return df_results
+
+def run_cnn_experiment(model = 'vgg11',
                        model_name = 'vgg11_2048_2048',
                        classes = ['AD','CN'],
                        mri_reference = '',
-                       prediction_dataset_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/processed/',
-                       model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/',
+                       run_test = False,
+                       compute_predictions = False,
+                       prediction_dataset_path = '',
+                       model_path = '',
                        additional_experiment_params = None):
     '''
     Run the MRI classification for AD or CN.
@@ -46,7 +97,7 @@ def run_cnn_experiment(model_type = 'vgg11',
     Parameters
     ----------
 
-    model_type: Neural network to be trained. Can be 'vgg11' or 'shallow'.
+    model: Neural network to be trained. Can be 'vgg11' or 'shallow'.
     
     model_name: Name to save the trained model.
     
@@ -73,13 +124,14 @@ def run_cnn_experiment(model_type = 'vgg11',
         df_mri_reference = pd.read_csv(mri_reference)
     else:
         df_mri_reference = mri_reference
-        
-    model = load_model(model_type)
+    
+    if type(model) == str:
+        model = load_model(model)
     model_name = model_name + datetime.now().strftime("%m%d%Y_%H%M")
     
     optimizer,criterion,prepared_data = setup_experiment(model,classes,df_mri_reference,additional_experiment_params)
 
-    train(train_dataloader=prepared_data['train_dataloader'],
+    train_metrics,validation_metrics = train(train_dataloader=prepared_data['train_dataloader'],
         validation_dataloader=prepared_data['validation_dataloader'],
         model=model,
         loss_fn=criterion,
@@ -88,16 +140,34 @@ def run_cnn_experiment(model_type = 'vgg11',
         early_stopping_epochs=additional_experiment_params['early_stop'],
         model_name = model_name,
         model_path=model_path)
+    
+    cols = train_metrics.keys()
+    train_cols = ['train_'+x for x in cols]
+    df_results = pd.DataFrame([train_metrics])
+    df_results.columns = train_cols
+    
+    validation_cols = ['validation_'+x for x in cols]
+    for col,value in zip(validation_cols,validation_metrics.values()):
+        df_results[col] = [value]
 
-    model.load_state_dict(torch.load(model_path + model_name+'.pth'))
-    model.eval()
-    test(dataloader=prepared_data['test_dataloader'],
-        model=model,
-        loss_fn=criterion)
-
-    df_mri_reference = compute_predictions_for_dataset(prepared_data,model,criterion,threshold = additional_experiment_params['prediction_threshold'])
-    # df_mri_reference.to_csv(prediction_dataset_path + "PREDICTED_MRI_REFERENCE.csv")
-    return df_mri_reference
+    if run_test:
+        model.load_state_dict(torch.load(model_path + model_name+'.pth'))
+        model.eval()
+        test_metrics = test(dataloader=prepared_data['test_dataloader'],
+            model=model,
+            loss_fn=criterion,
+            return_predictions=False,
+            compute_metrics=True)
+        test_cols = ['test_'+x for x in cols]
+        for col,value in zip(test_cols,test_metrics.values()):
+            df_results[col] = value
+            
+    if compute_predictions:
+        df_predictions = compute_predictions_for_dataset(prepared_data,model,criterion,threshold = additional_experiment_params['prediction_threshold'])
+        if prediction_dataset_path is not None and prediction_dataset_path != '':
+            df_predictions.to_csv(prediction_dataset_path + "PREDICTED_MRI_REFERENCE.csv",index=False)
+        return df_predictions,df_results
+    return df_results
 
 def setup_experiment(model,classes,df_mri_reference,additional_experiment_params):
 
@@ -154,8 +224,12 @@ def return_sets(df_mri_reference,classes):
 
     df_mri_reference = df_mri_reference.loc[df_mri_reference['MACRO_GROUP'].isin([0,1]),:]
 
-    df_validation_reference = df_mri_reference.query("DATASET == 'validation' and SLICE == MAIN_SLICE")
-    df_test_reference = df_mri_reference.query("DATASET == 'test' and SLICE == MAIN_SLICE")
+    filter_query = "DATASET == 'set' and SLICE == MAIN_SLICE"
+    if 'ROTATION_ANGLE' in df_mri_reference.columns:
+      filter_query = filter_query + " and (ROTATION_ANGLE == 0 or ROTATION_ANGLE == '0')"
+
+    df_validation_reference = df_mri_reference.query(filter_query.replace('set','validation'))
+    df_test_reference = df_mri_reference.query(filter_query.replace('set','test'))
     df_train_reference = df_mri_reference.query("DATASET not in ('validation','test')")
 
     print("Train size:",df_train_reference.shape[0])
@@ -219,6 +293,8 @@ def train(train_dataloader,
 
     train_losses = []
     validation_losses = []
+    train_aucs = []
+    validation_aucs = []
     best_epoch = 0
     best_validation_auc = 0
     early_stopping_marker = 0
@@ -240,6 +316,8 @@ def train(train_dataloader,
         
         train_losses.append(train_loss)
         validation_losses.append(validation_loss)
+        train_aucs.append(train_metrics['auc'])
+        validation_aucs.append(validation_metrics['auc'])
 
         if best_validation_auc >= validation_metrics['auc']:
             early_stopping_marker += 1
@@ -250,6 +328,9 @@ def train(train_dataloader,
             best_model_params = model.state_dict()
             best_validation_metrics = validation_metrics
             best_validation_loss = validation_loss
+            best_train_metrics = train_metrics
+            best_train_loss = train_loss
+
             print('Best validation AUC so far: %1.4f' % best_validation_metrics['auc'])
         
         if early_stopping_epochs > 0:
@@ -263,18 +344,23 @@ def train(train_dataloader,
             print("Saving model at:",model_path,'\n')
             torch.save(best_model_params, model_path + model_name + '.pth')
 
-    plt.plot(train_losses, label='Training loss')
-    plt.plot(validation_losses, label='Validation loss')
-    plt.legend()
-    plt.title("Training vs Validation Loss")
-    plt.show()    
+    plot_metric(metric='Loss',train_metric=train_losses,validation_metric= validation_losses)    
+    plot_metric(metric='AUC',train_metric=train_aucs,validation_metric= validation_aucs)    
     print('\n-------------------------------')
     print(f"Best metrics for validation set on Epoch {best_epoch}:")
     print_metrics(best_validation_metrics,best_validation_loss)
     print('-------------------------------\n')
-    return None
+    
+    return best_train_metrics,best_validation_metrics
 
-def test(dataloader,model,loss_fn,skip_compute_metrics = False, return_predictions = False,dataset_type = 'test'):
+def plot_metric(metric,train_metric, validation_metric):
+    plt.plot(train_metric, label=f'Train {metric}')
+    plt.plot(validation_metric, label=f'Validation {metric}')
+    plt.legend()
+    plt.title(f"Train vs Validation {metric}")
+    plt.show()
+
+def test(dataloader,model,loss_fn,compute_metrics = True, return_predictions = False,dataset_type = 'test'):
     size = len(dataloader.dataset)
     model.eval()
     test_loss, correct = 0, 0
@@ -298,14 +384,15 @@ def test(dataloader,model,loss_fn,skip_compute_metrics = False, return_predictio
                 y_predict_proba = torch.sigmoid(y_pred)
                 y_predict_probabilities = torch.cat((y_predict_probabilities,y_predict_proba),0)
 
-        if not skip_compute_metrics:
+        if compute_metrics:
             test_loss /= size
             print(f"Performance for {dataset_type} set:")
             test_metrics = compute_metrics_binary(y_true = true_labels, y_pred = predicted_labels,threshold = 0.5,verbose=0)
             print_metrics(test_metrics,test_loss,validation_metrics = None)
 
         if return_predictions:
-            return y_predict_probabilities.cpu().detach().numpy().ravel()
+            return y_predict_probabilities.cpu().detach().numpy().ravel(),test_metrics
+        return test_metrics
 
 def train_one_epoch(dataloader, model, loss_fn, optimizer):
     size = len(dataloader.dataset)
