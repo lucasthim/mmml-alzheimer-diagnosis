@@ -55,6 +55,62 @@ class NeuralNetwork(Module):
         logits = self.classifier(x)
         return logits
 
+
+class SuperShallowCNN(Module):
+    def __init__(self):
+        super(SuperShallowCNN, self).__init__()
+        self.features = Sequential(
+            Conv2d(in_channels =1, out_channels =8, kernel_size=3, stride=1, padding=1),
+            BatchNorm2d(num_features=8),
+            ReLU(inplace=True),
+            MaxPool2d(2,2),
+
+            Conv2d(in_channels =8, out_channels =16, kernel_size=3, stride=1, padding=0),
+            BatchNorm2d(num_features=16),
+            ReLU(inplace=True),
+            MaxPool2d(2,2),
+            
+            Conv2d(in_channels =16, out_channels =32, kernel_size=3, stride=1, padding=0),
+            BatchNorm2d(num_features=32),
+            ReLU(inplace=True),
+            MaxPool2d(2,2),
+            
+            Conv2d(in_channels =32, out_channels =64, kernel_size=3, stride=1, padding=0),
+            BatchNorm2d(num_features=64),
+            ReLU(inplace=True),
+            MaxPool2d(2,2),
+
+            Conv2d(in_channels =64, out_channels =128, kernel_size=3, stride=1, padding=0),
+            ReLU(inplace=True)
+        )
+        self.avgpool = AdaptiveAvgPool2d(output_size=(4, 4))
+        self.classifier = Sequential(
+            # Remember changing the x.view() number as well. It needs to be flattenend!
+            Linear(in_features=128*4*4, out_features=128, bias=True),
+            ReLU(inplace=True),
+            # Dropout(p=0.5, inplace=False),
+            Linear(in_features=128, out_features=64, bias=True),
+            ReLU(inplace=True),
+            # Dropout(p=0.5, inplace=False),
+            # Linear(in_features=64, out_features=64, bias=True),
+            # ReLU(inplace=True),
+            # Dropout(p=0.5, inplace=False),
+            Linear(in_features=64, out_features=1, bias=True)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        # print(x.size())
+        x = self.avgpool(x)
+        # print(x.size())
+
+        # flattenning 
+        x = x.view(-1,128*4*4)
+        # print(x.size())
+        logits = self.classifier(x)
+        # print(logits.size())
+        return logits
+
 def create_adapted_vgg11():
     vgg = models.vgg11()
     vgg.features[0] = Conv2d(1,64, 3, stride=1,padding=1)

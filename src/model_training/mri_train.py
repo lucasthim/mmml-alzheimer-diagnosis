@@ -25,7 +25,7 @@ sys.path.append("./../data_preparation")
 from train_test_split import train_test_split_by_subject
 
 sys.path.append("./../models")
-from neural_network import NeuralNetwork,create_adapted_vgg11
+from neural_network import NeuralNetwork, SuperShallowCNN,create_adapted_vgg11
 
 # %load_ext autoreload
 # %autoreload 2
@@ -34,48 +34,53 @@ from neural_network import NeuralNetwork,create_adapted_vgg11
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using {} device".format(device))
 
-def run_mris_experiments(orientation = 'coronal',
-                          slices = list(range(45,56)),
+def run_mris_experiments(orientation_and_slices = [('coronal',list(range(45,56)))],
                           num_repeats = 3,
                           model='shallow_cnn',
                           classes=['AD','CN'],
+                          mri_config = {
+                            'num_samples':0,
+                            'num_rotations':0,
+                            'sampling_range':3,
+                            'mri_reference':'/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/PROCESSED_MRI_REFERENCE_ALL_ORIENTATIONS_20211012_2041.csv',
+                            'output_path':'/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/experiments/',
+                            },
+                          additional_experiment_params = None,
                           save_path = ''):
 
     results = []
-    for ii in range(1,num_repeats+1):
-        for slice in slices:
-            print("\n--------------------------------------------------------------------")
-            print("--------------------------------------------------------------------")
-            print(f"Running {orientation} - slice:{slice} with no data augmentation.")
-            print("--------------------------------------------------------------------")
-            print("--------------------------------------------------------------------\n")
-            mri_config = {
-            'orientation':orientation,
-            'slice':slice,
-            'num_samples':0,
-            'num_rotations':0,
-            'sampling_range':3,
-            'mri_reference':'/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/PROCESSED_MRI_REFERENCE_ALL_ORIENTATIONS_20211012_2033.csv',
-            'output_path':'/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/experiments/',
-            }
-            df_ref = generate_mri_dataset_reference(mri_reference_path = mri_config['mri_reference'],
-                                output_path = mri_config['output_path'],
-                                orientation = mri_config['orientation'],
-                                orientation_slice = mri_config['slice'],
-                                num_sampled_images = mri_config['num_samples'],
-                                sampling_range = mri_config['sampling_range'],
-                                num_rotations = mri_config['num_rotations'],
-                                save_reference_file = False)
-            run_result = run_cnn_experiment(model = model,
-                        model_name = 'cnn_'+orientation+str(slice)+str(ii),
-                        classes = classes,
-                        mri_reference = df_ref,
-                        run_test = False,
-                        compute_predictions = False,
-                        prediction_dataset_path = '',
-                        model_path = '')
-            run_result['RUN_ID'] = orientation+str(slice)+str(ii)
-            results.append(run_result)
+    for orientation,slices in orientation_and_slices:
+        mri_config['orientation'] = orientation
+        for ii in range(1,num_repeats+1):
+            for slice in slices:
+                print("\n--------------------------------------------------------------------")
+                print("--------------------------------------------------------------------")
+                print(f"Running {orientation} - slice:{slice} with no data augmentation.")
+                print("--------------------------------------------------------------------")
+                print("--------------------------------------------------------------------\n")
+                mri_config['slice'] = slice
+                df_ref = generate_mri_dataset_reference(mri_reference_path = mri_config['mri_reference'],
+                                    output_path = mri_config['output_path'],
+                                    orientation = mri_config['orientation'],
+                                    orientation_slice = mri_config['slice'],
+                                    num_sampled_images = mri_config['num_samples'],
+                                    sampling_range = mri_config['sampling_range'],
+                                    num_rotations = mri_config['num_rotations'],
+                                    save_reference_file = False)
+                run_result = run_cnn_experiment(model = model,
+                            model_name = 'cnn_'+orientation+str(slice)+str(ii),
+                            classes = classes,
+                            mri_reference = df_ref,
+                            run_test = False,
+                            compute_predictions = False,
+                            prediction_dataset_path = '',
+                            model_path = '',
+                            additional_experiment_params = additional_experiment_params)
+                run_result['orientation'] = orientation
+                run_result['slice'] = slice
+                run_result['run'] = ii
+                run_result['RUN_ID'] = orientation+str(slice)+str(ii)
+                results.append(run_result)
 
     df_results = pd.concat(results)
     if save_path != '' and save_path is not None:
@@ -270,16 +275,33 @@ def compute_predictions_for_dataset(prepared_data, model,criterion,threshold=0.5
 def load_model(model_type='shallow'):
     print("Loading untrained model...")
     if model_type == 'vgg11':
-        vgg = create_adapted_vgg11()
+        vgg = adapt_vgg(models.vgg11())
         model = vgg.to(device)
-    else:
+    
+    elif model_type == 'vgg11_bn':
+        vgg11_bn = adapt_vgg(models.vgg11_bn())
+        model = vgg11_bn.to(device)
+
+    elif model_type == 'vgg13_bn':
+        vgg13_bn = adapt_vgg(models.vgg13_bn())
+        model = vgg13_bn.to(device)
+
+    elif model_type == 'shallow_cnn':
         custom_nn = NeuralNetwork()
+        model = custom_nn.to(device)
+    else:
+        custom_nn = SuperShallowCNN()
         model = custom_nn.to(device)
 
     print(model)
     print('')
     count_trainable_parameters(model)
     return model
+
+def adapt_vgg(vgg):
+    vgg.features[0] = Conv2d(1,64, 3, stride=1,padding=1)
+    vgg.classifier[-1] = Linear(in_features=4096, out_features=1,bias=True)
+    return vgg
 
 def train(train_dataloader,
             validation_dataloader, 
