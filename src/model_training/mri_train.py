@@ -87,6 +87,59 @@ def run_mris_experiments(orientation_and_slices = [('coronal',list(range(45,56))
         df_results.to_csv(save_path,index=False)
     return df_results
 
+
+def run_experiments_for_ensemble(orientation_and_slices = [('coronal',list(range(45,56)))],
+                          model='shallow_cnn',
+                          classes=['AD','CN'],
+                          mri_config = {
+                            'num_samples':0,
+                            'num_rotations':0,
+                            'sampling_range':3,
+                            'mri_reference':'/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/PROCESSED_MRI_REFERENCE_ALL_ORIENTATIONS_20211012_2041.csv',
+                            'output_path':'/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/experiments/',
+                            },
+                          additional_experiment_params = None,
+                          save_path = ''):
+
+    predictions = []
+    for orientation,slices in orientation_and_slices:
+        mri_config['orientation'] = orientation
+        for slice in slices:
+            print("\n--------------------------------------------------------------------")
+            print("--------------------------------------------------------------------")
+            print(f"Running {orientation} - slice:{slice} with no data augmentation.")
+            print("--------------------------------------------------------------------")
+            print("--------------------------------------------------------------------\n")
+            mri_config['slice'] = slice
+            df_ref = generate_mri_dataset_reference(mri_reference_path = mri_config['mri_reference'],
+                                output_path = mri_config['output_path'],
+                                orientation = mri_config['orientation'],
+                                orientation_slice = mri_config['slice'],
+                                num_sampled_images = mri_config['num_samples'],
+                                sampling_range = mri_config['sampling_range'],
+                                num_rotations = mri_config['num_rotations'],
+                                save_reference_file = False)
+            prediction,_ = run_cnn_experiment(model = model,
+                        model_name = 'cnn_'+orientation+str(slice),
+                        classes = classes,
+                        mri_reference = df_ref,
+                        run_test = False,
+                        compute_predictions = True,
+                        prediction_dataset_path = '',
+                        model_path = '',
+                        additional_experiment_params = additional_experiment_params)
+            prediction['orientation'] = orientation
+            prediction['slice'] = slice
+            prediction['RUN_ID'] = orientation+str(slice)
+            predictions.append(prediction)
+
+    df_predictions = pd.concat(predictions)
+    # TODO: pivot table to make RUN_ID turn into columns for the prediction scores
+    if save_path != '' and save_path is not None:
+        df_predictions.to_csv(save_path,index=False)
+    return df_predictions
+
+
 def run_cnn_experiment(model = 'vgg11',
                        model_name = 'vgg11_2048_2048',
                        classes = ['AD','CN'],
@@ -156,7 +209,7 @@ def run_cnn_experiment(model = 'vgg11',
         df_results[col] = [value]
 
     if run_test:
-        model.load_state_dict(torch.load(model_path + model_name+'.pth'))
+        # model.load_state_dict(torch.load(model_path + model_name+'.pth'))
         model.eval()
         test_metrics = test(dataloader=prepared_data['test_dataloader'],
             model=model,
@@ -261,14 +314,14 @@ def compute_predictions_for_dataset(prepared_data, model,criterion,threshold=0.5
     for dataset_type,data_loader,df in zip(dataset_types,loaders,datasets):
         print(f'Computing Predictions for {dataset_type} set.')
         print('dataset size:',df.shape)
-        predict_probs = test(dataloader=data_loader,
+        predict_probs,test_metrics = test(dataloader=data_loader,
         model=model,
         loss_fn=criterion,
-        skip_compute_metrics=False,
+        compute_metrics=False,
         return_predictions=True)
         predicted_labels = predict_probs >= threshold
-        df['CNN_PREDICTION' ] = predicted_labels
-        df['CNN_PREDICT_PROBA' ] = predict_probs
+        df['CNN_LABEL' ] = predicted_labels
+        df['CNN_SCORE' ] = predict_probs
 
     return pd.concat(datasets)
 
@@ -286,13 +339,29 @@ def load_model(model_type='shallow'):
         vgg13_bn = adapt_vgg(models.vgg13_bn())
         model = vgg13_bn.to(device)
 
+    elif model_type == 'vgg16_bn':
+        vgg16_bn = adapt_vgg(models.vgg16_bn())
+        model = vgg16_bn.to(device)
+
+    elif model_type == 'vgg19_bn':
+        vgg19_bn = adapt_vgg(models.vgg19_bn())
+        model = vgg19_bn.to(device)
+    
+    elif model_type == 'resnet50':
+        resnet50 = adapt_resnet(models.resnet50())
+        model = resnet50.to(device)
+    
+    elif model_type == 'resnet101':
+        resnet101 = adapt_resnet(models.resnet101())
+        model = resnet101.to(device)
+    
     elif model_type == 'shallow_cnn':
         custom_nn = NeuralNetwork()
         model = custom_nn.to(device)
     else:
         custom_nn = SuperShallowCNN()
         model = custom_nn.to(device)
-
+        
     print(model)
     print('')
     count_trainable_parameters(model)
@@ -303,6 +372,15 @@ def adapt_vgg(vgg):
     vgg.classifier[-1] = Linear(in_features=4096, out_features=1,bias=True)
     return vgg
 
+def adapt_resnet(resnet):
+    resnet.conv1 = Conv2d(1,64, 7, stride=2,padding=3)
+    resnet.fc = Sequential(
+    Linear(in_features=2048, out_features=1000, bias=True),
+    ReLU(inplace=True),
+    Dropout(p=0.5, inplace=False),
+    Linear(in_features=1000, out_features=1, bias=True)
+)
+    return resnet
 def train(train_dataloader,
             validation_dataloader, 
             model, 
@@ -406,6 +484,7 @@ def test(dataloader,model,loss_fn,compute_metrics = True, return_predictions = F
                 y_predict_proba = torch.sigmoid(y_pred)
                 y_predict_probabilities = torch.cat((y_predict_probabilities,y_predict_proba),0)
 
+        test_metrics = None
         if compute_metrics:
             test_loss /= size
             print(f"Performance for {dataset_type} set:")
@@ -414,6 +493,7 @@ def test(dataloader,model,loss_fn,compute_metrics = True, return_predictions = F
 
         if return_predictions:
             return y_predict_probabilities.cpu().detach().numpy().ravel(),test_metrics
+        
         return test_metrics
 
 def train_one_epoch(dataloader, model, loss_fn, optimizer):
