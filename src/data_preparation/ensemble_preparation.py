@@ -3,7 +3,7 @@ import numpy as np
 
 from train_test_split import train_test_split_by_subject
 
-def execute_ensemble_preparation(ensemble_data_path,test_size=0.25,validation_size=0.25):
+def execute_ensemble_preparation(ensemble_data_path,classes=[0,1,2],test_size=0.25,validation_size=0.25):
     
     '''
     Prepare ensemble data for training process by splitting the data between train, validation and test set.
@@ -18,6 +18,8 @@ def execute_ensemble_preparation(ensemble_data_path,test_size=0.25,validation_si
     ------------
     ensemble_data_path: path where the preprocessed ensemble data reference is located.
 
+    classes: Classes to filter out final ensemble reference file.
+    
     test_size: size of the test set. Has to be bigger than 0 and less than 1.
 
     validation_size: size of the validation set. Has to be bigger than 0 and less than 1.
@@ -32,9 +34,9 @@ def execute_ensemble_preparation(ensemble_data_path,test_size=0.25,validation_si
     print("Spliting ensemble data in train, validation and test...")
     df_ensemble.sort_values('SUBJECT',inplace=True)
     df_no_conflict = df_ensemble.query("CONFLICT_DIAGNOSIS == False")
-    df_train,df_validation = train_test_split_by_subject(df_no_conflict,test_size = validation_size,labels = [0,1],label_column='DIAGNOSIS',random_seed=42)
+    df_train,df_validation = train_test_split_by_subject(df_no_conflict,test_size = validation_size,labels = classes,label_column='DIAGNOSIS',random_seed=42)
     corrected_test_size = test_size * (df_no_conflict.shape[0]/df_train.shape[0])
-    df_train,df_test = train_test_split_by_subject(df_train,test_size = corrected_test_size,labels = [0,1],label_column='DIAGNOSIS',random_seed=42)
+    df_train,df_test = train_test_split_by_subject(df_train,test_size = corrected_test_size,labels = classes,label_column='DIAGNOSIS',random_seed=42)
     print("Ensemble train size:",df_train.shape)
     print("Ensemble validation size:",df_validation.shape)
     print("Ensemble test size:",df_test.shape)

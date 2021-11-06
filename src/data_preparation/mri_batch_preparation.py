@@ -23,7 +23,7 @@ def execute_mri_batch_preparation(mri_reference_path,
                                     'sagittal':range(15,36),
                                     'axial':range(65,86),
                                     'sagittal':range(65,86)
-                                }):
+                                },image_filter = None):
 
     '''
     Execute MRI preparation for large batches of images for training the deep learning model. The final images are saved in separate folders per subject/image_data_id.
@@ -55,6 +55,8 @@ def execute_mri_batch_preparation(mri_reference_path,
     df_ensemble_reference['IMAGE_DATA_ID'] = ['I'+str(x) for x in df_ensemble_reference['IMAGEUID']]
     invalid_images = df_ensemble_reference.query("CONFLICT_DIAGNOSIS == True")['IMAGE_DATA_ID']
     df_mri_reference = df_mri_reference.query("IMAGE_DATA_ID not in @invalid_images").reset_index(drop=True)
+    if image_filter is not None:
+        df_mri_reference = df_mri_reference.query("IMAGE_DATA_ID in @image_filter").reset_index(drop=True)
     images_to_process = df_mri_reference['IMAGE_DATA_ID']
 
     if not os.path.exists(output_path):

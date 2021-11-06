@@ -34,6 +34,7 @@ from neural_network import NeuralNetwork, SuperShallowCNN,create_adapted_vgg11
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using {} device".format(device))
 
+
 def run_mris_experiments(orientation_and_slices = [('coronal',list(range(45,56)))],
                           num_repeats = 3,
                           model='shallow_cnn',
@@ -81,6 +82,9 @@ def run_mris_experiments(orientation_and_slices = [('coronal',list(range(45,56))
                 run_result['run'] = ii
                 run_result['RUN_ID'] = orientation+str(slice)+str(ii)
                 results.append(run_result)
+                if save_path != '' and save_path is not None:
+                    df_results = pd.concat(results)
+                    df_results.to_csv(save_path,index=False)
 
     df_results = pd.concat(results)
     if save_path != '' and save_path is not None:
@@ -177,6 +181,7 @@ def run_cnn_experiment(model = 'vgg11',
                              'optimizer':'adam',
                              'max_epochs':100,
                              'early_stop':10,
+                             'early_stop_metric':'auc',
                              'prediction_threshold':0.5}
     if type(mri_reference) == str:
         df_mri_reference = pd.read_csv(mri_reference)
@@ -196,6 +201,7 @@ def run_cnn_experiment(model = 'vgg11',
         optimizer=optimizer,
         max_epochs=additional_experiment_params['max_epochs'],
         early_stopping_epochs=additional_experiment_params['early_stop'],
+        early_stopping_metric = additional_experiment_params['early_stop_metric'],
         model_name = model_name,
         model_path=model_path)
     
@@ -236,7 +242,7 @@ def setup_experiment(model,classes,df_mri_reference,additional_experiment_params
     elif additional_experiment_params['optimizer'] == 'rmsprop':
         optimizer = RMSprop(model.parameters(), lr=additional_experiment_params['lr'])
     else:
-        optimizer = SGD(model.parameters(), lr=additional_experiment_params['lr'])
+        optimizer = SGD(model.parameters(), lr=additional_experiment_params['lr'],momentum=additional_experiment_params['momentum'])
 
     dataset_params = {'batch_size': additional_experiment_params['batch_size'],
             'shuffle': False,
@@ -338,49 +344,68 @@ def load_model(model_type='shallow'):
     elif model_type == 'vgg13_bn':
         vgg13_bn = adapt_vgg(models.vgg13_bn())
         model = vgg13_bn.to(device)
-
-    elif model_type == 'vgg16_bn':
-        vgg16_bn = adapt_vgg(models.vgg16_bn())
-        model = vgg16_bn.to(device)
+    
+    elif model_type == 'vgg13':
+        vgg13_bn = adapt_vgg(models.vgg13())
+        model = vgg13_bn.to(device)
 
     elif model_type == 'vgg19_bn':
         vgg19_bn = adapt_vgg(models.vgg19_bn())
         model = vgg19_bn.to(device)
-    
+
+    elif model_type == 'vgg19':
+        vgg19 = adapt_vgg(models.vgg19())
+        model = vgg19.to(device)
+
+
+    elif model_type == 'resnet34':
+        resnet34 = adapt_resnet(models.resnet34(),linear_features=512)
+        model = resnet34.to(device)
+
     elif model_type == 'resnet50':
-        resnet50 = adapt_resnet(models.resnet50())
+        resnet50 = adapt_resnet(models.resnet50(),linear_features=2048)
         model = resnet50.to(device)
     
     elif model_type == 'resnet101':
-        resnet101 = adapt_resnet(models.resnet101())
+        resnet101 = adapt_resnet(models.resnet101(),linear_features=2048)
         model = resnet101.to(device)
     
     elif model_type == 'shallow_cnn':
         custom_nn = NeuralNetwork()
         model = custom_nn.to(device)
-    else:
+    elif model_type == 'super_shallow_cnn':
         custom_nn = SuperShallowCNN()
         model = custom_nn.to(device)
-        
+    else:
+        model = model.to(device)
+
     print(model)
     print('')
     count_trainable_parameters(model)
     return model
-
-def adapt_vgg(vgg):
-    vgg.features[0] = Conv2d(1,64, 3, stride=1,padding=1)
-    vgg.classifier[-1] = Linear(in_features=4096, out_features=1,bias=True)
-    return vgg
-
-def adapt_resnet(resnet):
+    
+def adapt_resnet(resnet,linear_features = 512):
     resnet.conv1 = Conv2d(1,64, 7, stride=2,padding=3)
     resnet.fc = Sequential(
-    Linear(in_features=2048, out_features=1000, bias=True),
+    Linear(in_features=linear_features, out_features=1000, bias=True),
     ReLU(inplace=True),
     Dropout(p=0.5, inplace=False),
     Linear(in_features=1000, out_features=1, bias=True)
-)
+    )
     return resnet
+    
+def adapt_vgg(vgg):
+    vgg.features[0] = Conv2d(1,64, 3, stride=1,padding=1)
+    # vgg.classifier[-1] = Linear(in_features=4096, out_features=1,bias=True)
+    vgg.classifier = Sequential(
+    Linear(in_features=7*7*512, out_features=4096, bias=True),
+    ReLU(inplace=True),
+    Linear(in_features=4096, out_features=4096, bias=True),
+    ReLU(inplace=True),
+    Linear(in_features=4096, out_features=1, bias=True)
+    )
+    return vgg
+
 def train(train_dataloader,
             validation_dataloader, 
             model, 
@@ -388,6 +413,7 @@ def train(train_dataloader,
             optimizer,
             max_epochs=100,
             early_stopping_epochs = 10,
+            early_stopping_metric = 'auc',
             model_name = 'experiment',
             model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/'):
 
@@ -395,8 +421,11 @@ def train(train_dataloader,
     validation_losses = []
     train_aucs = []
     validation_aucs = []
+    train_f1s = []
+    validation_f1s = []
+        
     best_epoch = 0
-    best_validation_auc = 0
+    best_validation_metric = 0
     early_stopping_marker = 0
     best_model_params = model.state_dict()
     best_validation_metrics = None
@@ -418,12 +447,14 @@ def train(train_dataloader,
         validation_losses.append(validation_loss)
         train_aucs.append(train_metrics['auc'])
         validation_aucs.append(validation_metrics['auc'])
+        train_f1s.append(train_metrics['f1score'])
+        validation_f1s.append(validation_metrics['f1score'])
 
-        if best_validation_auc >= validation_metrics['auc']:
+        if best_validation_metric >= validation_metrics[early_stopping_metric]:
             early_stopping_marker += 1
         else:
             best_epoch = epoch+1
-            best_validation_auc = validation_metrics['auc']
+            best_validation_metric = validation_metrics[early_stopping_metric]
             early_stopping_marker = 0
             best_model_params = model.state_dict()
             best_validation_metrics = validation_metrics
@@ -431,27 +462,34 @@ def train(train_dataloader,
             best_train_metrics = train_metrics
             best_train_loss = train_loss
 
-            print('Best validation AUC so far: %1.4f' % best_validation_metrics['auc'])
+            print('Best validation '+ early_stopping_metric + ' so far: %1.4f' % best_validation_metrics[early_stopping_metric])
         
         if early_stopping_epochs > 0:
             if early_stopping_marker == early_stopping_epochs:
                 print("\nExiting training... It hit early stopping criteria of:",early_stopping_epochs,'epochs')
                 print("Saving model at:",model_path)
-                torch.save(best_model_params, model_path + model_name + '.pth')
+                # torch.save(best_model_params, model_path + model_name + '.pth')
                 break
 
         if (best_epoch) == max_epochs:
             print("Saving model at:",model_path,'\n')
-            torch.save(best_model_params, model_path + model_name + '.pth')
+            # torch.save(best_model_params, model_path + model_name + '.pth')
 
     plot_metric(metric='Loss',train_metric=train_losses,validation_metric= validation_losses)    
+    print('')
     plot_metric(metric='AUC',train_metric=train_aucs,validation_metric= validation_aucs)    
+    print('')
+    plot_metric(metric='F1 Score',train_metric=train_f1s,validation_metric= validation_f1s)    
     print('\n-------------------------------')
     print(f"Best metrics for validation set on Epoch {best_epoch}:")
     print_metrics(best_validation_metrics,best_validation_loss)
     print('-------------------------------\n')
+    print(f"Metrics for train set on Epoch {best_epoch}:")
+    print_metrics(best_train_metrics,best_train_loss)
+    print('-------------------------------\n')
     
     return best_train_metrics,best_validation_metrics
+
 
 def plot_metric(metric,train_metric, validation_metric):
     plt.plot(train_metric, label=f'Train {metric}')

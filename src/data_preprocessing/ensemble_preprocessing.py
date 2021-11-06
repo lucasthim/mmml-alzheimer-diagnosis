@@ -4,7 +4,10 @@ import numpy as np
 
 
 # %%
-def execute_ensemble_preprocessing(preprocessed_cognitive_data_path,preprocessed_mri_raw_data_path,ensemble_data_output_path,classes=[1,0],how='inner'):
+def execute_ensemble_preprocessing(preprocessed_cognitive_data_path,
+                            preprocessed_mri_raw_data_path,
+                            ensemble_data_output_path,
+                            classes=[1,0]):
     ''' 
 
     Execute preprocessing for the reference data that will be used in the ensemble model.
@@ -18,7 +21,7 @@ def execute_ensemble_preprocessing(preprocessed_cognitive_data_path,preprocessed
     '''
 
     print("Merging files from MRI reference and Cognitive Tests reference...")
-    df_cog = pd.read_csv(preprocessed_cognitive_data_path).dropna().query("IMAGEUID != 999999 and DIAGNOSIS in @classes")
+    df_cog = pd.read_csv(preprocessed_cognitive_data_path).dropna().query("IMAGEUID != 999999")
     df_mri = pd.read_csv(preprocessed_mri_raw_data_path)
     df_mri.rename(columns={'IMAGE_DATA_ID':'IMAGEUID'},inplace=True)
     df_mri['IMAGEUID'] = df_mri['IMAGEUID'].str.replace('I','').astype(np.int64)
@@ -28,12 +31,13 @@ def execute_ensemble_preprocessing(preprocessed_cognitive_data_path,preprocessed
         print("Duplicates found and removed!")
 
     print("Normalizing classes from both files...")
-    df_ensemble = pd.merge(df_cog,df_mri[['SUBJECT','IMAGEUID','GROUP','MACRO_GROUP','VISIT','ACQ_DATE']],on=['SUBJECT','IMAGEUID'],how=how)
+    df_ensemble = pd.merge(df_cog,df_mri[['SUBJECT','IMAGEUID','GROUP','MACRO_GROUP','VISIT','ACQ_DATE']],on=['SUBJECT','IMAGEUID'])
     if 'CN' in df_ensemble['MACRO_GROUP'].unique() or 'AD' in df_ensemble['MACRO_GROUP'].unique() or 'MCI' in df_ensemble['MACRO_GROUP'].unique() :
         df_ensemble['MACRO_GROUP'].replace({'AD':1,'CN':0,'MCI':2},inplace=True)
     print("Initial data merged!")
     
     df_ensemble = mark_conflicting_diagnosis(df_ensemble)
+    df_ensemble = df_ensemble.query("MACRO_GROUP in @classes")
 
     print("Saving ensemble reference file...")
     df_ensemble.to_csv(ensemble_data_output_path,index=False)
