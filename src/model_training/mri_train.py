@@ -1,5 +1,6 @@
 import time
 from datetime import datetime
+from copy import deepcopy
 
 import pandas as pd
 import numpy as np
@@ -27,13 +28,11 @@ from train_test_split import train_test_split_by_subject
 sys.path.append("./../models")
 from neural_network import NeuralNetwork, SuperShallowCNN,create_adapted_vgg11
 
-# %load_ext autoreload
-# %autoreload 2
-
-# Defining global variables
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using {} device".format(device))
 
+# %load_ext autoreload
+# %autoreload 2
 
 def run_mris_experiments(orientation_and_slices = [('coronal',list(range(45,56)))],
                           num_repeats = 3,
@@ -91,7 +90,6 @@ def run_mris_experiments(orientation_and_slices = [('coronal',list(range(45,56))
         df_results.to_csv(save_path,index=False)
     return df_results
 
-
 def run_experiments_for_ensemble(orientation_and_slices = [('coronal',list(range(45,56)))],
                           model='shallow_cnn',
                           classes=['AD','CN'],
@@ -138,11 +136,10 @@ def run_experiments_for_ensemble(orientation_and_slices = [('coronal',list(range
             predictions.append(prediction)
 
     df_predictions = pd.concat(predictions)
-    # TODO: pivot table to make RUN_ID turn into columns for the prediction scores
+
     if save_path != '' and save_path is not None:
         df_predictions.to_csv(save_path,index=False)
     return df_predictions
-
 
 def run_cnn_experiment(model = 'vgg11',
                        model_name = 'vgg11_2048_2048',
@@ -194,7 +191,7 @@ def run_cnn_experiment(model = 'vgg11',
     
     optimizer,criterion,prepared_data = setup_experiment(model,classes,df_mri_reference,additional_experiment_params)
 
-    train_metrics,validation_metrics = train(train_dataloader=prepared_data['train_dataloader'],
+    train_metrics,validation_metrics,best_model_params = train(train_dataloader=prepared_data['train_dataloader'],
         validation_dataloader=prepared_data['validation_dataloader'],
         model=model,
         loss_fn=criterion,
@@ -215,19 +212,15 @@ def run_cnn_experiment(model = 'vgg11',
         df_results[col] = [value]
 
     if run_test:
-        # model.load_state_dict(torch.load(model_path + model_name+'.pth'))
-        model.eval()
-        test_metrics = test(dataloader=prepared_data['test_dataloader'],
-            model=model,
-            loss_fn=criterion,
-            return_predictions=False,
-            compute_metrics=True)
+        model = model.load_state_dict(best_model_params,strict=True)
+        model.to(device)
+        test_metrics,_,_ = evaluate(dataloader=prepared_data['test_dataloader'], model= model, loss_fn = criterion, optimizer=optimizer,predictions=False)
         test_cols = ['test_'+x for x in cols]
         for col,value in zip(test_cols,test_metrics.values()):
             df_results[col] = value
             
     if compute_predictions:
-        df_predictions = compute_predictions_for_dataset(prepared_data,model,criterion,threshold = additional_experiment_params['prediction_threshold'])
+        df_predictions = compute_predictions_for_dataset(prepared_data,model,loss_fn= criterion, optimizer=optimizer,threshold = additional_experiment_params['prediction_threshold'])
         if prediction_dataset_path is not None and prediction_dataset_path != '':
             df_predictions.to_csv(prediction_dataset_path + "PREDICTED_MRI_REFERENCE.csv",index=False)
         return df_predictions,df_results
@@ -242,12 +235,14 @@ def setup_experiment(model,classes,df_mri_reference,additional_experiment_params
     elif additional_experiment_params['optimizer'] == 'rmsprop':
         optimizer = RMSprop(model.parameters(), lr=additional_experiment_params['lr'])
     else:
-        optimizer = SGD(model.parameters(), lr=additional_experiment_params['lr'],momentum=additional_experiment_params['momentum'])
+        optimizer = SGD(model.parameters(), 
+                        lr=additional_experiment_params['lr'],
+                        momentum=additional_experiment_params['momentum'])
 
     dataset_params = {'batch_size': additional_experiment_params['batch_size'],
-            'shuffle': False,
+            'shuffle': True,
             'num_workers': 4,
-            'pin_memory':True}
+            'pin_memory':False}
     
     df_train_reference, df_validation_reference, df_test_reference = return_sets(df_mri_reference,classes)
 
@@ -256,10 +251,10 @@ def setup_experiment(model,classes,df_mri_reference,additional_experiment_params
     train_dataloader = DataLoader(training_set, **dataset_params)
 
     validation_set = MRIDataset(reference_table = df_validation_reference)
-    validation_dataloader = DataLoader(validation_set, **dataset_params)
+    validation_dataloader = DataLoader(validation_set, shuffle=False,batch_size=1024)
 
     test_set = MRIDataset(reference_table = df_test_reference)
-    test_dataloader = DataLoader(test_set, **dataset_params)
+    test_dataloader = DataLoader(test_set, shuffle=False,batch_size=1024)
     prepared_data = {
         'train_dataloader':train_dataloader,
         'validation_dataloader':validation_dataloader,
@@ -269,8 +264,17 @@ def setup_experiment(model,classes,df_mri_reference,additional_experiment_params
         'df_test_reference':df_test_reference
     }
 
-    # pos_weight = torch.ones([1]) * (neg_class/pos_class)
-    criterion = BCEWithLogitsLoss()
+    df_train = df_mri_reference.query("DATASET not in ('validation','test')")
+
+    neg_class = df_train.query("MACRO_GROUP == 0").shape[0]
+    pos_class = df_train.query("MACRO_GROUP == 1").shape[0]
+
+    if additional_experiment_params['loss'] == 'FocalLoss':
+        alpha =  (pos_class/neg_class)
+        criterion = WeightedFocalLoss(alpha=alpha,gamma=additional_experiment_params['loss_gamma'])
+    else:
+        pos_weight = torch.ones([1]) * (neg_class/pos_class)
+        criterion = BCEWithLogitsLoss(pos_weight=pos_weight,reduction='mean')
     criterion = criterion.to(device)
 
     return optimizer,criterion,prepared_data
@@ -301,7 +305,7 @@ def return_sets(df_mri_reference,classes):
     print("Test size:",df_test_reference.shape[0])
     return df_train_reference, df_validation_reference, df_test_reference
 
-def compute_predictions_for_dataset(prepared_data, model,criterion,threshold=0.5):
+def compute_predictions_for_dataset(prepared_data, model,loss_fn,optimizer,threshold=0.5,verbose=0):
 
     loaders = [
         prepared_data['train_dataloader'],
@@ -317,17 +321,19 @@ def compute_predictions_for_dataset(prepared_data, model,criterion,threshold=0.5
     dataset_types = ['train','validation','test']
 
     print("Saving predictions from trained model...")
+    model.to(device)
+    model.eval()
     for dataset_type,data_loader,df in zip(dataset_types,loaders,datasets):
         print(f'Computing Predictions for {dataset_type} set.')
         print('dataset size:',df.shape)
-        predict_probs,test_metrics = test(dataloader=data_loader,
-        model=model,
-        loss_fn=criterion,
-        compute_metrics=False,
-        return_predictions=True)
-        predicted_labels = predict_probs >= threshold
+        
+        metrics,loss,predicted_probas = evaluate(dataloader = data_loader, model = model, loss_fn = loss_fn, optimizer=optimizer,predictions=True)
+        if verbose > 0:
+            print_metrics(metrics,loss)
+
+        predicted_labels = predicted_probas >= threshold
         df['CNN_LABEL' ] = predicted_labels
-        df['CNN_SCORE' ] = predict_probs
+        df['CNN_SCORE' ] = predicted_probas
 
     return pd.concat(datasets)
 
@@ -393,7 +399,7 @@ def adapt_resnet(resnet,linear_features = 512):
     Linear(in_features=1000, out_features=1, bias=True)
     )
     return resnet
-    
+
 def adapt_vgg(vgg):
     vgg.features[0] = Conv2d(1,64, 3, stride=1,padding=1)
     # vgg.classifier[-1] = Linear(in_features=4096, out_features=1,bias=True)
@@ -427,17 +433,20 @@ def train(train_dataloader,
     best_epoch = 0
     best_validation_metric = 0
     early_stopping_marker = 0
-    best_model_params = model.state_dict()
+    best_model_params = deepcopy(model.state_dict())
     best_validation_metrics = None
     best_validation_loss = None
+    model.to(device)
+    model.train()
     for epoch in range(max_epochs):
         t0 = time.time()
         
         print('\n---------------------------------------------------------------------')
         print(f'Running Epoch {epoch + 1} of  {max_epochs}')
         
-        train_loss,train_metrics = train_one_epoch(train_dataloader, model, loss_fn, optimizer)
-        validation_loss, validation_metrics = validate_one_epoch(validation_dataloader, model, loss_fn, optimizer)
+        train_loss = train_one_epoch(train_dataloader, model, loss_fn, optimizer)
+        train_metrics,_,_ = evaluate(train_dataloader, model, loss_fn, optimizer)
+        validation_loss, validation_metrics,_ = evaluate(validation_dataloader, model, loss_fn, optimizer)
         
         print_metrics(train_metrics,train_loss,validation_metrics,validation_loss)
         print('\nEpoch {} took'.format(epoch+1),'%3.2f seconds' % (time.time() - t0))
@@ -456,7 +465,7 @@ def train(train_dataloader,
             best_epoch = epoch+1
             best_validation_metric = validation_metrics[early_stopping_metric]
             early_stopping_marker = 0
-            best_model_params = model.state_dict()
+            best_model_params = deepcopy(model.state_dict())
             best_validation_metrics = validation_metrics
             best_validation_loss = validation_loss
             best_train_metrics = train_metrics
@@ -467,13 +476,16 @@ def train(train_dataloader,
         if early_stopping_epochs > 0:
             if early_stopping_marker == early_stopping_epochs:
                 print("\nExiting training... It hit early stopping criteria of:",early_stopping_epochs,'epochs')
-                print("Saving model at:",model_path)
-                # torch.save(best_model_params, model_path + model_name + '.pth')
+                
+                if model_path != '':
+                    print("Saving model at:",model_path)
+                    torch.save(best_model_params, model_path + model_name + '.pth')
                 break
 
         if (best_epoch) == max_epochs:
-            print("Saving model at:",model_path,'\n')
-            # torch.save(best_model_params, model_path + model_name + '.pth')
+            if model_path != '':
+                print("Saving model at:",model_path)
+                torch.save(best_model_params, model_path + model_name + '.pth')
 
     plot_metric(metric='Loss',train_metric=train_losses,validation_metric= validation_losses)    
     print('')
@@ -481,6 +493,7 @@ def train(train_dataloader,
     print('')
     plot_metric(metric='F1 Score',train_metric=train_f1s,validation_metric= validation_f1s)    
     print('\n-------------------------------')
+    
     print(f"Best metrics for validation set on Epoch {best_epoch}:")
     print_metrics(best_validation_metrics,best_validation_loss)
     print('-------------------------------\n')
@@ -488,8 +501,7 @@ def train(train_dataloader,
     print_metrics(best_train_metrics,best_train_loss)
     print('-------------------------------\n')
     
-    return best_train_metrics,best_validation_metrics
-
+    return best_train_metrics,best_validation_metrics,best_model_params
 
 def plot_metric(metric,train_metric, validation_metric):
     plt.plot(train_metric, label=f'Train {metric}')
@@ -497,42 +509,6 @@ def plot_metric(metric,train_metric, validation_metric):
     plt.legend()
     plt.title(f"Train vs Validation {metric}")
     plt.show()
-
-def test(dataloader,model,loss_fn,compute_metrics = True, return_predictions = False,dataset_type = 'test'):
-    size = len(dataloader.dataset)
-    model.eval()
-    test_loss, correct = 0, 0
-    true_labels = torch.Tensor().to(device)
-    predicted_labels = torch.Tensor().to(device)
-    y_predict_probabilities = torch.Tensor().to(device)
-    with torch.no_grad():
-        for X, y in dataloader:
-            X, y = X.to(device), y.to(device)
-            X = X.view(-1,1, 100,100)
-            y = y.view(-1,1)
-            # y = one_hot(y, num_classes)
-            # y = y.view(-1,num_classes)
-            y_pred = model(X)
-            y = y.type_as(y_pred)
-
-            test_loss += loss_fn(y_pred, y).item()
-            true_labels = torch.cat((true_labels,y),0)
-            predicted_labels = torch.cat((predicted_labels,y_pred),0)
-            if return_predictions:
-                y_predict_proba = torch.sigmoid(y_pred)
-                y_predict_probabilities = torch.cat((y_predict_probabilities,y_predict_proba),0)
-
-        test_metrics = None
-        if compute_metrics:
-            test_loss /= size
-            print(f"Performance for {dataset_type} set:")
-            test_metrics = compute_metrics_binary(y_true = true_labels, y_pred = predicted_labels,threshold = 0.5,verbose=0)
-            print_metrics(test_metrics,test_loss,validation_metrics = None)
-
-        if return_predictions:
-            return y_predict_probabilities.cpu().detach().numpy().ravel(),test_metrics
-        
-        return test_metrics
 
 def train_one_epoch(dataloader, model, loss_fn, optimizer):
     size = len(dataloader.dataset)
@@ -544,8 +520,6 @@ def train_one_epoch(dataloader, model, loss_fn, optimizer):
         X, y = X.to(device), y.to(device)
         X = X.view(-1,1, 100,100)
         y = y.view(-1,1)
-        # y = one_hot(y, num_classes)
-        # y = y.view(-1,num_classes)
 
         # clearing the Gradients of the model parameters
         optimizer.zero_grad()
@@ -564,15 +538,22 @@ def train_one_epoch(dataloader, model, loss_fn, optimizer):
         running_loss += loss 
         true_labels = torch.cat((true_labels,y),0)
         predicted_labels = torch.cat((predicted_labels,y_pred),0)
-    train_metrics = compute_metrics_binary(y_pred = predicted_labels,y_true = true_labels,threshold = 0.5,verbose=0)
+    
     running_loss = running_loss/size
-    return running_loss, train_metrics
+    return running_loss
 
-def validate_one_epoch(dataloader, model, loss_fn, optimizer):
+def evaluate(dataloader, model, loss_fn, optimizer,predictions=False):
+    '''
+    Evaluate a model on a dataset. 
+    
+    Returns metrics, loss and predictions
+
+    '''
+
     size = len(dataloader.dataset)
     running_loss = 0.0
     true_labels = torch.Tensor().to(device)
-    predicted_labels = torch.Tensor().to(device)
+    predicted_logits = torch.Tensor().to(device)
 
     with torch.no_grad():
         for batch, (X, y) in enumerate(dataloader):
@@ -592,14 +573,17 @@ def validate_one_epoch(dataloader, model, loss_fn, optimizer):
             
             running_loss += loss    
             true_labels = torch.cat((true_labels,y),0)
-            predicted_labels = torch.cat((predicted_labels,y_pred),0)
-
-        validation_metrics = compute_metrics_binary(y_pred = predicted_labels,y_true = true_labels,threshold = 0.5,verbose=0)
+            predicted_logits = torch.cat((predicted_logits,y_pred),0)
+        predicted_probas = torch.sigmoid(predicted_logits)
+        metrics = compute_metrics_binary(y_true = true_labels, y_pred_proba = predicted_probas, threshold = 0.5,verbose=0)
         running_loss = running_loss/size
-        
-        return running_loss, validation_metrics
+                
+        if predictions:
+            predicted_probas = predicted_probas.cpu().detach().numpy().ravel()
 
-def compute_metrics_binary(y_true:torch.Tensor, y_pred:torch.Tensor, y_pred_proba:torch.Tensor = None,threshold = 0.5,verbose=0):
+        return metrics,running_loss,predicted_probas
+
+def compute_metrics_binary(y_true:torch.Tensor, y_pred:torch.Tensor = None , y_pred_proba:torch.Tensor = None,threshold = 0.5,verbose=0):
     
     if y_pred_proba is None:
         y_pred_proba = torch.sigmoid(y_pred)
@@ -732,87 +716,20 @@ def count_trainable_parameters(model):
     #                                             'batch_size':16,
     #                                             'optimizer':'adam'})
 
+from torch.nn.functional import binary_cross_entropy_with_logits
+from torch.nn import Module
 
-    
-# Best result so far...
-# dataset type: train
-# dataset size: (18756, 18)
-# Performance for Test set:
-# Loss::      0.0303
-# AUC::       0.8921
-# Accuracy::  0.9077
-# F1::        0.8414
-# Precision:: 0.8275
-# Recall::    0.8557
-# Confusion Matrix:
-#  [[12435   957]
-#  [  774  4590]]
-# (18756, 1)
-# dataset type: validation
-# dataset size: (187, 18)
-# Performance for Test set:
-# Loss::      0.0184
-# AUC::       0.8918
-# Accuracy::  0.8824
-# F1::        0.8406
-# Precision:: 0.7733
-# Recall::    0.9206
-# Confusion Matrix:
-#  [[107  17]
-#  [  5  58]]
-# (187, 1)
-# dataset type: test
-# dataset size: (185, 18)
-# Performance for Test set:
-# Loss::      0.0301
-# AUC::       0.9117
-# Accuracy::  0.9135
-# F1::        0.8596
-# Precision:: 0.8167
-# Recall::    0.9074
-# Confusion Matrix:
-#  [[120  11]
-#  [  5  49]]
+class WeightedFocalLoss(Module):
+    "Weighted version of Focal Loss"
+    def __init__(self, alpha=.25, gamma=2):
+        super(WeightedFocalLoss, self).__init__()
+        self.alpha = torch.tensor([alpha, 1-alpha]).cuda()
+        self.gamma = gamma
 
-
-# Saving predictions from trained model...
-# dataset type: train
-# dataset size: (27360, 15)
-# Performance for Test set:
-# Loss::      0.0048
-# AUC::       0.9477
-# Accuracy::  0.9674
-# F1::        0.9442
-# Precision:: 0.9974
-# Recall::    0.8965
-# Confusion Matrix:
-#  [[18916    20]
-#  [  872  7552]]
-# (27360,)
-# dataset type: validation
-# dataset size: (247, 15)
-# Performance for Test set:
-# Loss::      0.0587
-# AUC::       0.8337
-# Accuracy::  0.8543
-# F1::        0.7805
-# Precision:: 0.7901
-# Recall::    0.7711
-# Confusion Matrix:
-#  [[147  17]
-#  [ 19  64]]
-# (247,)
-# dataset type: test
-# dataset size: (271, 15)
-# Performance for Test set:
-# Loss::      0.0680
-# AUC::       0.7402
-# Accuracy::  0.8266
-# F1::        0.6357
-# Precision:: 0.7593
-# Recall::    0.5467
-# Confusion Matrix:
-#  [[183  13]
-#  [ 34  41]]
-# (271,)
-# %%
+    def forward(self, inputs, targets):
+        BCE_loss = binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+        targets = targets.type(torch.long)
+        at = self.alpha.gather(0, targets.data.view(-1))
+        pt = torch.exp(-BCE_loss)
+        F_loss = at*(1-pt)**self.gamma * BCE_loss
+        return F_loss.mean()
