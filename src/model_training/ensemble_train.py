@@ -118,6 +118,23 @@ def run_tabular_data_experiment(cognitive_tests_data_path = '/content/gdrive/MyD
 
     return df_validation_results,df_test_results,df_predictions,model
 
+def preprocess_cnn_predictions(df):
+    df_mri = df.copy()
+    df_mri['CNN_LABEL'].replace({False:0,True:1},inplace=True)
+    df_mri['DATASET'].fillna('CNN_train',inplace=True)
+    df_mri = df_mri[['SUBJECT','IMAGE_DATA_ID','ORIENTATION','SLICE','RUN_ID','CNN_LABEL','CNN_SCORE','MACRO_GROUP','DATASET']]
+    df_mri = df_mri.pivot_table(index=['SUBJECT','IMAGE_DATA_ID','DATASET','MACRO_GROUP'],values=['CNN_LABEL','CNN_SCORE'],columns=['RUN_ID'])
+    df_mri.columns = [x[0]+'_'+x[1].upper() for x in df_mri.columns]
+    df_mri.reset_index(inplace=True)
+    df_mri.drop(["CNN_LABEL_AXIAL8",'CNN_LABEL_CORONAL70','CNN_LABEL_SAGITTAL50'],axis=1,inplace=True)
+    for col in ['CNN_SCORE_AXIAL8','CNN_SCORE_CORONAL70','CNN_SCORE_SAGITTAL50']:
+    nulls = df_mri[col].isna()
+    if nulls.sum() > 0:
+        print(f"Found {nulls.sum()} null predictions. Replacing by 0.")
+        df_mri.loc[nulls,col] = 0
+    else:
+        print(f"No null predictions for {col}")
+    return df_mri
 
 # %%
 

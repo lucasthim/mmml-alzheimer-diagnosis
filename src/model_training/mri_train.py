@@ -49,37 +49,43 @@ def run_mris_experiments(orientation_and_slices = [('coronal',list(range(45,56))
         mri_config['orientation'] = orientation
         for ii in range(1,num_repeats+1):
             for slice in slices:
-                print("\n--------------------------------------------------------------------")
-                print("--------------------------------------------------------------------")
-                print(f"Running {orientation} - slice:{slice} with no data augmentation.")
-                print("--------------------------------------------------------------------")
-                print("--------------------------------------------------------------------\n")
-                mri_config['slice'] = slice
-                df_ref = generate_mri_dataset_reference(mri_reference_path = mri_config['mri_reference'],
-                                    output_path = mri_config['output_path'],
-                                    orientation = mri_config['orientation'],
-                                    orientation_slice = mri_config['slice'],
-                                    num_sampled_images = mri_config['num_samples'],
-                                    sampling_range = mri_config['sampling_range'],
-                                    num_rotations = mri_config['num_rotations'],
-                                    save_reference_file = False)
-                run_result = run_cnn_experiment(model = model,
-                            model_name = 'cnn_'+orientation+str(slice)+str(ii),
-                            classes = classes,
-                            mri_reference = df_ref,
-                            run_test = False,
-                            compute_predictions = False,
-                            prediction_dataset_path = '',
-                            model_path = '',
-                            additional_experiment_params = additional_experiment_params)
-                run_result['orientation'] = orientation
-                run_result['slice'] = slice
-                run_result['run'] = ii
-                run_result['RUN_ID'] = orientation+str(slice)+str(ii)
-                results.append(run_result)
-                if save_path != '' and save_path is not None:
-                    df_results = pd.concat(results)
-                    df_results.to_csv(save_path,index=False)
+                
+                try:
+                  print("\n--------------------------------------------------------------------")
+                  print("--------------------------------------------------------------------")
+                  print(f"Running {orientation} - slice:{slice} with no data augmentation.")
+                  print("--------------------------------------------------------------------")
+                  print("--------------------------------------------------------------------\n")
+                  mri_config['slice'] = slice
+                  df_ref = generate_mri_dataset_reference(mri_reference_path = mri_config['mri_reference'],
+                                      output_path = mri_config['output_path'],
+                                      orientation = mri_config['orientation'],
+                                      orientation_slice = mri_config['slice'],
+                                      num_sampled_images = mri_config['num_samples'],
+                                      sampling_range = mri_config['sampling_range'],
+                                      num_rotations = mri_config['num_rotations'],
+                                      save_reference_file = False)
+                  run_result = run_cnn_experiment(model = model,
+                              model_name = 'cnn_'+orientation+str(slice)+str(ii),
+                              classes = classes,
+                              mri_reference = df_ref,
+                              run_test = False,
+                              compute_predictions = False,
+                              prediction_dataset_path = '',
+                              model_path = '',
+                              additional_experiment_params = additional_experiment_params)
+                  run_result['orientation'] = orientation
+                  run_result['slice'] = slice
+                  run_result['run'] = ii
+                  run_result['RUN_ID'] = orientation+str(slice)+str(ii)
+                  results.append(run_result)
+                  if save_path != '' and save_path is not None:
+                      df_results = pd.concat(results)
+                      df_results.to_csv(save_path,index=False)
+                except BaseException as err:
+                  print(f"Experiment with orientation {orientation} and slice {slice} failed! Moving to the next.")
+                  print(f"\n Unexpected {err}, {type(err)}")
+                  continue
 
     df_results = pd.concat(results)
     if save_path != '' and save_path is not None:
@@ -122,7 +128,6 @@ def run_experiments_for_ensemble(orientation_and_slices = [('coronal',list(range
                         model_name = 'cnn_'+orientation+'_'+str(slice),
                         classes = classes,
                         mri_reference = df_ref,
-                        run_test = False,
                         compute_predictions = True,
                         prediction_dataset_path = '',
                         model_path = model_path+'_'+orientation+'_'+str(slice),
@@ -142,7 +147,6 @@ def run_cnn_experiment(model = 'vgg11',
                        model_name = 'vgg11_2048_2048',
                        classes = ['AD','CN'],
                        mri_reference = '',
-                       run_test = False,
                        compute_predictions = False,
                        prediction_dataset_path = '',
                        model_path = '',
@@ -161,10 +165,12 @@ def run_cnn_experiment(model = 'vgg11',
 
     mri_reference: Path or file of the MRI reference that will be used to filter the validation/test sets and classes. 
 
+    compute_predictions: Flag to compute final predictions after model is trained.
+    
     prediction_dataset_path: '/content/gdrive/MyDrive/Lucas_Thimoteo/mri/processed/',
-    
+
     model_path: Path to save the trained model.
-    
+
     additional_experiment_params: dictionary containing some experiments parameters such as lr (learning rate), batch_size and optimizer.
 
     '''
@@ -208,19 +214,17 @@ def run_cnn_experiment(model = 'vgg11',
     for col,value in zip(validation_cols,validation_metrics.values()):
         df_results[col] = [value]
 
-    if run_test:
+    if compute_predictions:
         model = model.load_state_dict(best_model_params,strict=True)
         model.to(device)
-        test_metrics,_,_ = evaluate(dataloader=prepared_data['test_dataloader'], model= model, loss_fn = criterion, optimizer=optimizer,predictions=False)
-        test_cols = ['test_'+x for x in cols]
-        for col,value in zip(test_cols,test_metrics.values()):
-            df_results[col] = value
+        model.eval()
             
-    if compute_predictions:
         df_predictions = compute_predictions_for_dataset(prepared_data,model,loss_fn= criterion, optimizer=optimizer,threshold = additional_experiment_params['prediction_threshold'])
         if prediction_dataset_path is not None and prediction_dataset_path != '':
             df_predictions.to_csv(prediction_dataset_path + "PREDICTED_MRI_REFERENCE.csv",index=False)
+        
         return df_predictions,df_results
+
     return df_results
 
 def setup_experiment(model,classes,df_mri_reference,additional_experiment_params):
@@ -540,6 +544,7 @@ def train_one_epoch(dataloader, model, loss_fn, optimizer):
     return running_loss
 
 def evaluate(dataloader, model, loss_fn, optimizer,predictions=False):
+    
     '''
     Evaluate a model on a dataset. 
     
@@ -644,71 +649,6 @@ def count_trainable_parameters(model):
             nn = nn*s
         pp += nn
     print("Total number of trainable parameters:",pp)
-
-
-    # return pp
-    # print("----------------------------------------------------")
-    # print("----------------------------------------------------")
-    # print("----------------------------------------------------")
-    # print("Sagittal 25 experiment....")
-    # print("----------------------------------------------------")
-    # print("----------------------------------------------------")
-    # print("----------------------------------------------------")
-    
-    # run_cnn_experiment(model_type = 'shallow',
-    #                     model_name = 'shallow_cnn',
-    #                     model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/',
-    #                     image_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/processed/sagittal_25_all_4155_images/',
-    #                     ensemble_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PROCESSED_ENSEMBLE_REFERENCE.csv',
-    #                     mri_orientation = 'sagittal',
-    #                     mri_slice = 25,
-    #                     classes = [1,0],
-    #                     prediction_dataset_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/',
-    #                     experiment_params = {'lr':0.0001,
-    #                                             'batch_size':16,
-    #                                             'optimizer':'adam'})
-
-    # print("----------------------------------------------------")
-    # print("----------------------------------------------------")
-    # print("----------------------------------------------------")
-    # print("Axial 25 experiment....")
-    # print("----------------------------------------------------")
-    # print("----------------------------------------------------")
-    # print("----------------------------------------------------")
-
-    # run_cnn_experiment(model_type = 'shallow',
-    #                     model_name = 'shallow_cnn',
-    #                     model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/',
-    #                     image_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/processed/axial_25_all_4155_images/',
-    #                     ensemble_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PROCESSED_ENSEMBLE_REFERENCE.csv',
-    #                     mri_orientation = 'axial',
-    #                     mri_slice = 25,
-    #                     classes = [1,0],
-    #                     prediction_dataset_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/',
-    #                     experiment_params = {'lr':0.0001,
-    #                                             'batch_size':16,
-    #                                             'optimizer':'adam'})
-                                                
-    # print("----------------------------------------------------")
-    # print("----------------------------------------------------")
-    # print("----------------------------------------------------")
-    # print("Axial 75 experiment....")
-    # print("----------------------------------------------------")
-    # print("----------------------------------------------------")
-    # print("----------------------------------------------------")
-
-    # run_cnn_experiment(model_type = 'shallow',
-    #                     model_name = 'shallow_cnn',
-    #                     model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/',
-    #                     image_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/processed/axial_75_all_4155_images/',
-    #                     ensemble_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PROCESSED_ENSEMBLE_REFERENCE.csv',
-    #                     mri_orientation = 'axial',
-    #                     mri_slice = 75,
-    #                     classes = [1,0],
-    #                     prediction_dataset_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/',
-    #                     experiment_params = {'lr':0.0001,
-    #                                             'batch_size':16,
-    #                                             'optimizer':'adam'})
 
 def get_numpy_array(arr):
     if isinstance(arr,torch.Tensor):
