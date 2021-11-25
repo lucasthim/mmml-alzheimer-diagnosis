@@ -8,14 +8,9 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import roc_auc_score, f1_score, precision_score, recall_score, accuracy_score, confusion_matrix
 
 import torch
-# from torch.nn.functional import one_hot
 from torch.utils.data import DataLoader
-from torch.autograd import Variable
-from torch.nn import Linear, ReLU, BCEWithLogitsLoss, Sequential, Conv2d, MaxPool2d, Module, Softmax, BatchNorm2d, Dropout, AdaptiveAvgPool2d
+from torch.nn import Linear, ReLU, BCEWithLogitsLoss, Sequential, Conv2d, Dropout
 from torch.optim import Adam, SGD,RMSprop
-
-from torchvision import datasets
-from torchvision.transforms import ToTensor, Lambda, Compose
 import torchvision.models as models
 
 from mri_dataset import MRIDataset
@@ -26,7 +21,8 @@ sys.path.append("./../data_preparation")
 from train_test_split import train_test_split_by_subject
 
 sys.path.append("./../models")
-from neural_network import NeuralNetwork, SuperShallowCNN,create_adapted_vgg11
+from neural_network import NeuralNetwork, SuperShallowCNN
+from loss import WeightedFocalLoss
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using {} device".format(device))
@@ -101,7 +97,8 @@ def run_experiments_for_ensemble(orientation_and_slices = [('coronal',list(range
                             'output_path':'/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/experiments/',
                             },
                           additional_experiment_params = None,
-                          save_path = ''):
+                          save_path = '',
+                          model_path=''):
 
     predictions = []
     for orientation,slices in orientation_and_slices:
@@ -122,13 +119,13 @@ def run_experiments_for_ensemble(orientation_and_slices = [('coronal',list(range
                                 num_rotations = mri_config['num_rotations'],
                                 save_reference_file = False)
             prediction,_ = run_cnn_experiment(model = model,
-                        model_name = 'cnn_'+orientation+str(slice),
+                        model_name = 'cnn_'+orientation+'_'+str(slice),
                         classes = classes,
                         mri_reference = df_ref,
                         run_test = False,
                         compute_predictions = True,
                         prediction_dataset_path = '',
-                        model_path = '',
+                        model_path = model_path+'_'+orientation+'_'+str(slice),
                         additional_experiment_params = additional_experiment_params)
             prediction['orientation'] = orientation
             prediction['slice'] = slice
@@ -402,14 +399,14 @@ def adapt_resnet(resnet,linear_features = 512):
 
 def adapt_vgg(vgg):
     vgg.features[0] = Conv2d(1,64, 3, stride=1,padding=1)
-    # vgg.classifier[-1] = Linear(in_features=4096, out_features=1,bias=True)
-    vgg.classifier = Sequential(
-    Linear(in_features=7*7*512, out_features=4096, bias=True),
-    ReLU(inplace=True),
-    Linear(in_features=4096, out_features=4096, bias=True),
-    ReLU(inplace=True),
-    Linear(in_features=4096, out_features=1, bias=True)
-    )
+    vgg.classifier[-1] = Linear(in_features=4096, out_features=1,bias=True)
+    # vgg.classifier = Sequential(
+    # Linear(in_features=7*7*512, out_features=4096, bias=True),
+    # ReLU(inplace=True),
+    # Linear(in_features=4096, out_features=4096, bias=True),
+    # ReLU(inplace=True),
+    # Linear(in_features=4096, out_features=1, bias=True)
+    # )
     return vgg
 
 def train(train_dataloader,
@@ -583,17 +580,14 @@ def evaluate(dataloader, model, loss_fn, optimizer,predictions=False):
 
         return metrics,running_loss,predicted_probas
 
-def compute_metrics_binary(y_true:torch.Tensor, y_pred:torch.Tensor = None , y_pred_proba:torch.Tensor = None,threshold = 0.5,verbose=0):
+def compute_metrics_binary(y_true, y_pred_proba,threshold = 0.5,verbose=0):
     
-    if y_pred_proba is None:
-        y_pred_proba = torch.sigmoid(y_pred)
-    y_pred_label = y_pred_proba
+    y_pred_proba = get_numpy_array(y_pred_proba)
+    y_pred_label = y_pred_proba.copy()
     y_pred_label[y_pred_proba >= threshold] = 1
     y_pred_label[y_pred_proba < threshold] = 0
     
-    y_true = y_true.cpu().detach().numpy()
-    y_pred_label = y_pred_label.cpu().detach().numpy()
-    y_pred_proba = y_pred_proba.cpu().detach().numpy()
+    y_true = get_numpy_array(y_true)
 
     auc = roc_auc_score(y_true, y_pred_proba)
     accuracy = accuracy_score(y_true, y_pred_label)
@@ -716,20 +710,9 @@ def count_trainable_parameters(model):
     #                                             'batch_size':16,
     #                                             'optimizer':'adam'})
 
-from torch.nn.functional import binary_cross_entropy_with_logits
-from torch.nn import Module
-
-class WeightedFocalLoss(Module):
-    "Weighted version of Focal Loss"
-    def __init__(self, alpha=.25, gamma=2):
-        super(WeightedFocalLoss, self).__init__()
-        self.alpha = torch.tensor([alpha, 1-alpha]).cuda()
-        self.gamma = gamma
-
-    def forward(self, inputs, targets):
-        BCE_loss = binary_cross_entropy_with_logits(inputs, targets, reduction='none')
-        targets = targets.type(torch.long)
-        at = self.alpha.gather(0, targets.data.view(-1))
-        pt = torch.exp(-BCE_loss)
-        F_loss = at*(1-pt)**self.gamma * BCE_loss
-        return F_loss.mean()
+def get_numpy_array(arr):
+    if isinstance(arr,torch.Tensor):
+        return arr.cpu().detach().numpy()
+    elif isinstance(arr,list):
+        return np.array(arr)
+    return arr
