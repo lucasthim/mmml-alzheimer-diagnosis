@@ -30,6 +30,39 @@ print("Using {} device".format(device))
 # %load_ext autoreload
 # %autoreload 2
 
+
+def compute_predictions_for_ensemble(orientations=['coronal','sagittal','axial'],
+                                     slices=[70,50,8],
+                                     model_types=['vgg19_bn','vgg19_bn','vgg19_bn'],
+                                     model_paths=[],
+                                     classes=['AD','CN'],
+                                     mri_config={},
+                                     save_path=''):
+    '''
+    Compute predictions of orientations and slices for the ensemble experiment.
+    '''
+    
+    dfs=[]
+    for model,model_path,orientation,slice in zip(model_types,model_paths,orientations,slices):
+        print('\n--------------------------------------------------------------------------------')
+        print(f"Evaluating performance on trained {model} for orientation {orientation} and slice {slice}")
+        print('--------------------------------------------------------------------------------')
+        mri_config['orientation'] = orientation
+        mri_config['slice'] = slice
+        df = evaluate_trained_model(model=model,
+                            model_path=model_path,
+                            classes=classes,
+                            mri_reference=mri_config)
+        
+        df['model'] = model
+        df['model_path'] = model_path
+
+        dfs.append(df)
+    df_predictions = pd.concat(dfs)
+    if save_path != '':
+        df_predictions.to_csv(save_path,index=False)
+    return df_predictions
+
 def run_mris_experiments(orientation_and_slices = [('coronal',list(range(45,56)))],
                           num_repeats = 3,
                           model='shallow_cnn',
@@ -65,14 +98,10 @@ def run_mris_experiments(orientation_and_slices = [('coronal',list(range(45,56))
                                       sampling_range = mri_config['sampling_range'],
                                       num_rotations = mri_config['num_rotations'],
                                       save_reference_file = False)
-                  run_result = run_cnn_experiment(model = model,
+                  run_result,_ = run_cnn_experiment(model = model,
                               model_name = 'cnn_'+orientation+str(slice)+str(ii),
                               classes = classes,
                               mri_reference = df_ref,
-                              run_test = False,
-                              compute_predictions = False,
-                              prediction_dataset_path = '',
-                              model_path = '',
                               additional_experiment_params = additional_experiment_params)
                   run_result['orientation'] = orientation
                   run_result['slice'] = slice
@@ -124,17 +153,17 @@ def run_experiments_for_ensemble(orientation_and_slices = [('coronal',list(range
                                 sampling_range = mri_config['sampling_range'],
                                 num_rotations = mri_config['num_rotations'],
                                 save_reference_file = False)
-            prediction,_ = run_cnn_experiment(model = model,
+            df_results,saved_model_path = run_cnn_experiment(model = model,
                         model_name = 'cnn_'+orientation+'_'+str(slice),
                         classes = classes,
                         mri_reference = df_ref,
-                        compute_predictions = True,
-                        prediction_dataset_path = '',
                         model_path = model_path+'_'+orientation+'_'+str(slice),
                         additional_experiment_params = additional_experiment_params)
-            prediction['orientation'] = orientation
-            prediction['slice'] = slice
-            prediction['RUN_ID'] = orientation+str(slice)
+            
+            prediction = evaluate_trained_model(model=model,
+                           model_path=saved_model_path,
+                           classes=classes,
+                           mri_reference=df_ref)
             predictions.append(prediction)
 
     df_predictions = pd.concat(predictions)
@@ -147,8 +176,8 @@ def run_cnn_experiment(model = 'vgg11',
                        model_name = 'vgg11_2048_2048',
                        classes = ['AD','CN'],
                        mri_reference = '',
-                       compute_predictions = False,
-                       prediction_dataset_path = '',
+                      #  compute_predictions = False,
+                      #  prediction_dataset_path = '',
                        model_path = '',
                        additional_experiment_params = None):
     '''
@@ -188,13 +217,14 @@ def run_cnn_experiment(model = 'vgg11',
     else:
         df_mri_reference = mri_reference
     
-    if type(model) == str:
-        model = load_model(model)
+    # original_model_type = deepcopy(model)
+    model = load_model(model)
+        
     model_name = model_name + datetime.now().strftime("%m%d%Y_%H%M")
     
     optimizer,criterion,prepared_data = setup_experiment(model,classes,df_mri_reference,additional_experiment_params)
 
-    train_metrics,validation_metrics,best_model_params = train(train_dataloader=prepared_data['train_dataloader'],
+    train_metrics,validation_metrics,saved_model_path = train(train_dataloader=prepared_data['train_dataloader'],
         validation_dataloader=prepared_data['validation_dataloader'],
         model=model,
         loss_fn=criterion,
@@ -213,19 +243,22 @@ def run_cnn_experiment(model = 'vgg11',
     validation_cols = ['validation_'+x for x in cols]
     for col,value in zip(validation_cols,validation_metrics.values()):
         df_results[col] = [value]
+    # if compute_predictions:
+    #     model = load_model(original_model_type)
+    #     return model,df_results
+    #     model = model.load_state_dict(best_model_params,strict=True)
+    #     model.to(device)
+    #     model.eval()
 
-    if compute_predictions:
-        model = model.load_state_dict(best_model_params,strict=True)
-        model.to(device)
-        model.eval()
-            
-        df_predictions = compute_predictions_for_dataset(prepared_data,model,loss_fn= criterion, optimizer=optimizer,threshold = additional_experiment_params['prediction_threshold'])
-        if prediction_dataset_path is not None and prediction_dataset_path != '':
-            df_predictions.to_csv(prediction_dataset_path + "PREDICTED_MRI_REFERENCE.csv",index=False)
-        
-        return df_predictions,df_results
+    #     df_predictions = evaluate_trained_model(model=model,
+    #                        classes=classes,
+    #                        mri_reference=df_mri_reference)
 
-    return df_results
+    #     if prediction_dataset_path != '':
+    #         df_predictions.to_csv(prediction_dataset_path + "PREDICTED_MRI_REFERENCE.csv",index=False)
+    #     return df_predictions,df_results
+
+    return df_results,saved_model_path
 
 def setup_experiment(model,classes,df_mri_reference,additional_experiment_params):
 
@@ -305,91 +338,6 @@ def return_sets(df_mri_reference,classes):
     print("Validation size:",df_validation_reference.shape[0])
     print("Test size:",df_test_reference.shape[0])
     return df_train_reference, df_validation_reference, df_test_reference
-
-def compute_predictions_for_dataset(prepared_data, model,loss_fn,optimizer,threshold=0.5,verbose=0):
-
-    loaders = [
-        prepared_data['train_dataloader'],
-        prepared_data['validation_dataloader'],
-        prepared_data['test_dataloader']
-    ]
-
-    datasets = [
-        prepared_data['df_train_reference'],
-        prepared_data['df_validation_reference'],
-        prepared_data['df_test_reference'],
-    ]
-    dataset_types = ['train','validation','test']
-
-    print("Saving predictions from trained model...")
-    model.to(device)
-    model.eval()
-    for dataset_type,data_loader,df in zip(dataset_types,loaders,datasets):
-        print(f'Computing Predictions for {dataset_type} set.')
-        print('dataset size:',df.shape)
-        
-        metrics,loss,predicted_probas = evaluate(dataloader = data_loader, model = model, loss_fn = loss_fn, optimizer=optimizer,predictions=True)
-        if verbose > 0:
-            print_metrics(metrics,loss)
-
-        predicted_labels = predicted_probas >= threshold
-        df['CNN_LABEL' ] = predicted_labels
-        df['CNN_SCORE' ] = predicted_probas
-
-    return pd.concat(datasets)
-
-def load_model(model_type='shallow'):
-    print("Loading untrained model...")
-    if model_type == 'vgg11':
-        vgg = adapt_vgg(models.vgg11())
-        model = vgg.to(device)
-    
-    elif model_type == 'vgg11_bn':
-        vgg11_bn = adapt_vgg(models.vgg11_bn())
-        model = vgg11_bn.to(device)
-
-    elif model_type == 'vgg13_bn':
-        vgg13_bn = adapt_vgg(models.vgg13_bn())
-        model = vgg13_bn.to(device)
-    
-    elif model_type == 'vgg13':
-        vgg13_bn = adapt_vgg(models.vgg13())
-        model = vgg13_bn.to(device)
-
-    elif model_type == 'vgg19_bn':
-        vgg19_bn = adapt_vgg(models.vgg19_bn())
-        model = vgg19_bn.to(device)
-
-    elif model_type == 'vgg19':
-        vgg19 = adapt_vgg(models.vgg19())
-        model = vgg19.to(device)
-
-
-    elif model_type == 'resnet34':
-        resnet34 = adapt_resnet(models.resnet34(),linear_features=512)
-        model = resnet34.to(device)
-
-    elif model_type == 'resnet50':
-        resnet50 = adapt_resnet(models.resnet50(),linear_features=2048)
-        model = resnet50.to(device)
-    
-    elif model_type == 'resnet101':
-        resnet101 = adapt_resnet(models.resnet101(),linear_features=2048)
-        model = resnet101.to(device)
-    
-    elif model_type == 'shallow_cnn':
-        custom_nn = NeuralNetwork()
-        model = custom_nn.to(device)
-    elif model_type == 'super_shallow_cnn':
-        custom_nn = SuperShallowCNN()
-        model = custom_nn.to(device)
-    else:
-        model = model.to(device)
-
-    print(model)
-    print('')
-    count_trainable_parameters(model)
-    return model
     
 def adapt_resnet(resnet,linear_features = 512):
     resnet.conv1 = Conv2d(1,64, 7, stride=2,padding=3)
@@ -421,8 +369,8 @@ def train(train_dataloader,
             max_epochs=100,
             early_stopping_epochs = 10,
             early_stopping_metric = 'auc',
-            model_name = 'experiment',
-            model_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/'):
+            model_name = 'cnn',
+            model_path = ''):
 
     train_losses = []
     validation_losses = []
@@ -439,6 +387,7 @@ def train(train_dataloader,
     best_validation_loss = None
     model.to(device)
     model.train()
+    final_model_path = ''
     for epoch in range(max_epochs):
         t0 = time.time()
         
@@ -446,8 +395,8 @@ def train(train_dataloader,
         print(f'Running Epoch {epoch + 1} of  {max_epochs}')
         
         train_loss = train_one_epoch(train_dataloader, model, loss_fn, optimizer)
-        train_metrics,_,_ = evaluate(train_dataloader, model, loss_fn, optimizer)
-        validation_loss, validation_metrics,_ = evaluate(validation_dataloader, model, loss_fn, optimizer)
+        train_metrics,_,_ = evaluate_one_epoch(train_dataloader, model, loss_fn)
+        validation_metrics,validation_loss,_ = evaluate_one_epoch(validation_dataloader, model, loss_fn)
         
         print_metrics(train_metrics,train_loss,validation_metrics,validation_loss)
         print('\nEpoch {} took'.format(epoch+1),'%3.2f seconds' % (time.time() - t0))
@@ -479,15 +428,18 @@ def train(train_dataloader,
                 print("\nExiting training... It hit early stopping criteria of:",early_stopping_epochs,'epochs')
                 
                 if model_path != '':
-                    print("Saving model at:",model_path)
-                    torch.save(best_model_params, model_path + model_name + '.pth')
+                    final_model_path = model_path + model_name + '.pth'
+                    print("Saving model at:",final_model_path)
+                    torch.save(best_model_params, final_model_path)
                 break
 
         if (best_epoch) == max_epochs:
             if model_path != '':
-                print("Saving model at:",model_path)
-                torch.save(best_model_params, model_path + model_name + '.pth')
+                final_model_path = model_path + model_name + '.pth'
+                print("Saving model at:",final_model_path)
+                torch.save(best_model_params, final_model_path)
 
+    print('\n-------------------------------')
     plot_metric(metric='Loss',train_metric=train_losses,validation_metric= validation_losses)    
     print('')
     plot_metric(metric='AUC',train_metric=train_aucs,validation_metric= validation_aucs)    
@@ -502,7 +454,7 @@ def train(train_dataloader,
     print_metrics(best_train_metrics,best_train_loss)
     print('-------------------------------\n')
     
-    return best_train_metrics,best_validation_metrics,best_model_params
+    return best_train_metrics,best_validation_metrics,final_model_path
 
 def plot_metric(metric,train_metric, validation_metric):
     plt.plot(train_metric, label=f'Train {metric}')
@@ -543,10 +495,10 @@ def train_one_epoch(dataloader, model, loss_fn, optimizer):
     running_loss = running_loss/size
     return running_loss
 
-def evaluate(dataloader, model, loss_fn, optimizer,predictions=False):
+def evaluate_one_epoch(dataloader, model, loss_fn,predictions=False):
     
     '''
-    Evaluate a model on a dataset. 
+    Evaluate a model after an epoch of training. 
     
     Returns metrics, loss and predictions
 
@@ -563,15 +515,10 @@ def evaluate(dataloader, model, loss_fn, optimizer,predictions=False):
             X, y = X.to(device), y.to(device)
             X = X.view(-1,1, 100,100)
             y = y.view(-1,1)
-            # y = one_hot(y, num_classes)
-            # y = y.view(-1,num_classes)
 
             y_pred = model(X)
             y = y.type_as(y_pred)
-            loss = loss_fn(y_pred, y)
-
-            optimizer.zero_grad()
-            loss = loss.item()
+            loss = loss_fn(y_pred, y).item()
             
             running_loss += loss    
             true_labels = torch.cat((true_labels,y),0)
@@ -649,6 +596,161 @@ def count_trainable_parameters(model):
             nn = nn*s
         pp += nn
     print("Total number of trainable parameters:",pp)
+
+def evaluate_trained_model(model='shallow_cnn',
+                           model_path='',
+                           classes=['AD','CN'],
+                           mri_reference={},
+                           save_predictions_path=''):
+    '''
+    Evaluate trained model on MRI reference dataset. 
+
+    Parameters
+    ------------
+
+    model: Model to evaluate. Can be a string indicating model type or a torch object
+
+    model_path: Path to load weights of a trained model. Only works if model is a string.
+
+    classes: Classes to evaluate.
+
+    mri_reference: Reference dataset to evaluate trained model. Can be a dict with information to load the dataset or the dataset itself.
+
+    save_predictions_path: Path to save the predictions generated during the model evaluation.
+
+    Returns
+    ----------
+
+    Dataset along with model predictions on column CNN_SCORE.
+
+    '''
+
+    if isinstance(mri_reference,pd.DataFrame):
+        df_ref = mri_reference.copy()
+    else:
+        df_ref = generate_mri_dataset_reference(
+        mri_reference_path = mri_reference['mri_reference'],
+        output_path = mri_reference['output_path'],
+        orientation = mri_reference['orientation'],
+        orientation_slice = mri_reference['slice'],
+        num_sampled_images = mri_reference['num_samples'],
+        sampling_range = mri_reference['sampling_range'],
+        num_rotations = mri_reference['num_rotations'],
+        save_reference_file = False)
+
+    if isinstance(model,str):
+        model = load_trained_model(model=model,model_path=model_path);
+    df_train_reference, df_validation_reference, df_test_reference = return_sets(df_ref,classes)
+
+    predictions_df=[]
+    for set_type,df in zip(['Training','Validation','Test'],[df_train_reference, df_validation_reference, df_test_reference]):
+
+        print(f"\n{set_type} set:")
+        _,predictions = evaluate_model(df,model,compute_predictions=True)
+        df['CNN_SCORE'] = predictions.astype(float)
+        
+        predictions_df.append(df)
+
+    df_predictions_final = pd.concat(predictions_df)
+
+    if save_predictions_path != '':
+        df_predictions_final.to_csv(save_predictions_path,index=False)
+    return df_predictions_final
+
+def evaluate_model(df_ref,model,compute_predictions=True):
+    
+    '''
+    Evaluates a trained model based on the provided dataset.
+    '''
+
+    dataset_params = {'batch_size': 512,'num_workers': 4,'pin_memory':False,'shuffle':False}
+    dataset = MRIDataset(reference_table=df_ref)
+    dataloader = DataLoader(dataset, **dataset_params)
+    
+    size = len(dataloader.dataset)
+    true_labels = torch.Tensor().to(device)
+    predicted_logits = torch.Tensor().to(device)
+
+    with torch.no_grad():
+        for batch, (X, y) in enumerate(dataloader):
+
+            X, y = X.to(device), y.to(device)
+            X = X.view(-1,1, 100,100)
+            y = y.view(-1,1)
+
+            y_pred = model(X)
+            y = y.type_as(y_pred)
+            
+            true_labels = torch.cat((true_labels,y),0)
+            predicted_logits = torch.cat((predicted_logits,y_pred),0)
+        predicted_probas = torch.sigmoid(predicted_logits)
+        metrics = compute_metrics_binary(y_true = true_labels, y_pred_proba = predicted_probas, threshold = 0.5,verbose=1)
+                
+        if compute_predictions:
+            predicted_probas = predicted_probas.cpu().detach().numpy().ravel()
+
+    return metrics,predicted_probas
+
+def load_trained_model(model='shallow_cnn',model_path='',verbose=0):
+    trained_model = load_model(model,verbose=verbose);
+    print("Loading trained weights into current model...")
+    trained_model.load_state_dict(torch.load(model_path),strict=True)
+    trained_model.eval()
+    trained_model.to(device)
+    return trained_model
+
+def load_model(model_type='shallow_cnn',verbose=0):
+    print("Loading untrained model...")
+    if model_type == 'vgg11':
+        vgg = adapt_vgg(models.vgg11())
+        model = vgg.to(device)
+    
+    elif model_type == 'vgg11_bn':
+        vgg11_bn = adapt_vgg(models.vgg11_bn())
+        model = vgg11_bn.to(device)
+
+    elif model_type == 'vgg13_bn':
+        vgg13_bn = adapt_vgg(models.vgg13_bn())
+        model = vgg13_bn.to(device)
+    
+    elif model_type == 'vgg13':
+        vgg13_bn = adapt_vgg(models.vgg13())
+        model = vgg13_bn.to(device)
+
+    elif model_type == 'vgg19_bn':
+        vgg19_bn = adapt_vgg(models.vgg19_bn())
+        model = vgg19_bn.to(device)
+
+    elif model_type == 'vgg19':
+        vgg19 = adapt_vgg(models.vgg19())
+        model = vgg19.to(device)
+
+    elif model_type == 'resnet34':
+        resnet34 = adapt_resnet(models.resnet34(),linear_features=512)
+        model = resnet34.to(device)
+
+    elif model_type == 'resnet50':
+        resnet50 = adapt_resnet(models.resnet50(),linear_features=2048)
+        model = resnet50.to(device)
+    
+    elif model_type == 'resnet101':
+        resnet101 = adapt_resnet(models.resnet101(),linear_features=2048)
+        model = resnet101.to(device)
+    
+    elif model_type == 'shallow_cnn':
+        custom_nn = NeuralNetwork()
+        model = custom_nn.to(device)
+    elif model_type == 'super_shallow_cnn':
+        custom_nn = SuperShallowCNN()
+        model = custom_nn.to(device)
+    else:
+        custom_nn = NeuralNetwork()
+        model = custom_nn.to(device)
+    if verbose > 0:
+      print(model)
+      print('')
+      count_trainable_parameters(model)
+    return model
 
 def get_numpy_array(arr):
     if isinstance(arr,torch.Tensor):
