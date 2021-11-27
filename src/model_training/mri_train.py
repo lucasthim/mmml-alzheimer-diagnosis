@@ -16,10 +16,6 @@ import torchvision.models as models
 from mri_dataset import MRIDataset
 from mri_dataset_generation import generate_mri_dataset_reference
 
-import sys
-sys.path.append("./../data_preparation")
-from train_test_split import train_test_split_by_subject
-
 sys.path.append("./../models")
 from neural_network import NeuralNetwork, SuperShallowCNN
 from loss import WeightedFocalLoss

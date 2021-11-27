@@ -9,6 +9,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
+sys.path.append("./../data_preparation")
 from mri_augmentation import *
 sys.path.append("./../utils")
 from base_mri import *
