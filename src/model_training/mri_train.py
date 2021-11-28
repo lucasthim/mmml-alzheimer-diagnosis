@@ -6,7 +6,6 @@ from copy import deepcopy
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_auc_score, f1_score, precision_score, recall_score, accuracy_score, confusion_matrix
 
 import torch
 from torch.utils.data import DataLoader
@@ -20,6 +19,10 @@ from mri_dataset_generation import generate_mri_dataset_reference
 sys.path.append("./../models")
 from neural_network import NeuralNetwork, SuperShallowCNN
 from loss import WeightedFocalLoss
+
+sys.path.append("./../model_evaluation")
+from base_evaluation import compute_metrics_binary
+
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using {} device".format(device))
@@ -529,42 +532,6 @@ def evaluate_one_epoch(dataloader, model, loss_fn,predictions=False):
 
         return metrics,running_loss,predicted_probas
 
-def compute_metrics_binary(y_true, y_pred_proba,threshold = 0.5,verbose=0):
-    
-    y_pred_proba = get_numpy_array(y_pred_proba)
-    y_pred_label = y_pred_proba.copy()
-    y_pred_label[y_pred_proba >= threshold] = 1
-    y_pred_label[y_pred_proba < threshold] = 0
-    
-    y_true = get_numpy_array(y_true)
-
-    auc = roc_auc_score(y_true, y_pred_proba)
-    accuracy = accuracy_score(y_true, y_pred_label)
-    f1score = f1_score(y_true, y_pred_label)
-    recall = recall_score(y_true, y_pred_label)
-    precision = precision_score(y_true, y_pred_label)
-    conf_mat = confusion_matrix(y_true, y_pred_label)
-
-    if verbose > 0:
-        print('----------------')
-        print("Total samples in batch:",y_true.shape)
-        print("AUC:       %1.3f" % auc)
-        print("Accuracy:  %1.3f" % accuracy)
-        print("F1:        %1.3f" % f1score)
-        print("Precision: %1.3f" % precision)
-        print("Recall:    %1.3f" % recall)
-        print("Confusion Matrix: \n", conf_mat)
-        print('----------------')
-    metrics = {
-        'auc':auc,
-        'accuracy':accuracy,
-        'f1score':f1score,
-        'precision':precision,
-        'recall':recall,
-        'conf_mat':conf_mat
-    }
-    return metrics
-
 def print_metrics(train_metrics,train_loss,validation_metrics = None,validation_loss = None):
     
     if validation_metrics is not None:
@@ -748,10 +715,3 @@ def load_model(model_type='shallow_cnn',verbose=0):
       print('')
       count_trainable_parameters(model)
     return model
-
-def get_numpy_array(arr):
-    if isinstance(arr,torch.Tensor):
-        return arr.cpu().detach().numpy()
-    elif isinstance(arr,list):
-        return np.array(arr)
-    return arr
