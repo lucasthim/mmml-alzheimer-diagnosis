@@ -116,38 +116,6 @@ def compute_results(df,trained_models):
     df_results = pd.DataFrame(results).sort_values('auc',ascending=False)
     return df_results
 
-def compute_metrics_binary(y_true, y_pred_proba = None,threshold = 0.5,verbose=0):
-    
-    y_pred_label = y_pred_proba
-    y_pred_label[y_pred_proba >= threshold] = 1
-    y_pred_label[y_pred_proba < threshold] = 0
-    
-    auc = roc_auc_score(y_true, y_pred_proba)
-    accuracy = accuracy_score(y_true, y_pred_label)
-    f1score = f1_score(y_true, y_pred_label)
-    recall = recall_score(y_true, y_pred_label)
-    precision = precision_score(y_true, y_pred_label)
-    conf_mat = confusion_matrix(y_true, y_pred_label)
-
-    if verbose > 0:
-        print('----------------')
-        print("Total samples in batch:",y_true.shape)
-        print("AUC:       %1.3f" % auc)
-        print("Accuracy:  %1.3f" % accuracy)
-        print("F1:        %1.3f" % f1score)
-        print("Precision: %1.3f" % precision)
-        print("Recall:    %1.3f" % recall)
-        print("Confusion Matrix: \n", conf_mat)
-        print('----------------')
-    metrics = {
-        'auc':auc,
-        'accuracy':accuracy,
-        'f1score':f1score,
-        'precision':precision,
-        'recall':recall,
-        'conf_mat':conf_mat
-    }
-    return metrics
 
 # %%
 

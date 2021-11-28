@@ -3,14 +3,8 @@ import numpy as np
 import pandas as pd
 
 import matplotlib.pyplot as plt
-
 from interpret.glassbox import ExplainableBoostingClassifier
-# from pycaret.classification import *
-# from pycaret.utils import enable_colab
-# enable_colab()
-from cognitive_tests_train import *
-sys.path.append("./../utils")
-from utils import *
+from sklearn.linear_model import LogisticRegression
 
 def prepare_mri_predictions(mri_data_path):
     df_mri = pd.read_csv(mri_data_path)
