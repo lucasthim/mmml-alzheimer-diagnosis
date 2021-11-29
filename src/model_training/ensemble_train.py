@@ -40,9 +40,10 @@ def train_ensemble_models(df_train,label,models):
         trained_models.append(model)
     return trained_models
 
-def compare_ensemble_models(models,datasets,label):
+def calculate_experiment_performance(models,datasets,label):
     df_rocs = calculate_rocs(models,datasets,label)
     calculate_metrics(models,datasets,df_rocs,label)
+    return df_rocs
 
 class DummyModel():
     def __init__(self,slice,threshold=0.5):

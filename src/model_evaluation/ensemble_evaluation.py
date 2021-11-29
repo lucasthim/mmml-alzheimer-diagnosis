@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 from base_evaluation import *
 
-def compare_rocs(df,label,models):
+def compare_ensembles_rocs(df,label,model_names):
     '''
     Compare ROC curves of several predictors by plotting the curves and their respective AUCs.
 
@@ -16,7 +16,7 @@ def compare_rocs(df,label,models):
 
     label: string indicating which column of the dataframe is the true label.
 
-    models: list of strings indicating the predicted score columns of the dataframe.
+    model_names: list of strings indicating the predicted score columns of the dataframe.
 
     Returns
     ------------
@@ -27,7 +27,7 @@ def compare_rocs(df,label,models):
     fig =plt.figure(figsize=(8,8))
     y_true = df[label].values
     opt_thresholds = pd.DataFrame(columns=['AUC','Optimal_Threshold'])
-    for model in models:
+    for model in model_names:
       
         y_proba = df[model]
         fpr, tpr, thresholds = metrics.roc_curve(y_true, y_proba, drop_intermediate=False)
@@ -46,32 +46,39 @@ def compare_rocs(df,label,models):
     plt.legend(loc="lower right")
     plt.show()
 
-def calculate_rocs(models,datasets,label):
-  dfs=[]
-  for set,df in zip(['Train','Validation','Test'],datasets):
+def compare_ensembles_performance(df,label,model_names):
+    '''
+    Compare the performance of several ensemble models against each other.
+    Plots comparison bar plots for AUC,Accuracy,F1,Recall and Precision.
 
-    df_roc,_ = plotroc(df, models=models,levels=[0.75, 0.9], label=label,set=set)
-    df_roc['set'] = set
-    dfs.append(df_roc)
-    print('')
-  df_rocs = pd.concat(dfs)
-  return df_rocs.reset_index()
+    '''
+    pass
+
+def calculate_rocs(models,datasets,label):
+    dfs=[]
+    for set,df in zip(['Train','Validation','Test'],datasets):
+
+      df_roc,_ = plotroc(df, models=models,levels=[0.75, 0.9], label=label,set=set)
+      df_roc['set'] = set
+      dfs.append(df_roc)
+      print('')
+    df_rocs = pd.concat(dfs)
+    return df_rocs.reset_index()
 
 def calculate_metrics(models,datasets,df_rocs,label):
 
-  for set,df in zip(['Train','Validation','Test'],datasets):
+    for set,df in zip(['Train','Validation','Test'],datasets):
+        for model in models:
+            model_name = type(model).__name__
+            if set == 'Train':
+              optimal_threshold = df_rocs.query("index== @model_name and set == 'Train'")['Optimal_Thresh'].values[0]
+            else:
+              optimal_threshold = df_rocs.query("index== @model_name and set == 'Validation'")['Optimal_Thresh'].values[0]
 
-    for model in models:
-      model_name = type(model).__name__
-      if set == 'Train':
-        optimal_threshold = df_rocs.query("index== @model_name and set == 'Train'")['Optimal_Thresh'].values[0]
-      else:
-        optimal_threshold = df_rocs.query("index== @model_name and set == 'Validation'")['Optimal_Thresh'].values[0]
-
-      print(f"{model_name} Results for {set}:")
-      print("Optimal Threshold: %.4f" % optimal_threshold)
-      
-      y_true = df[label]
-      y_pred_proba = model.predict_proba(df.drop(label,axis=1))[:,-1]
-      result_metrics = compute_metrics_binary(y_true, y_pred_proba = y_pred_proba,threshold = optimal_threshold,verbose=1)
-    print("\n---------------------------------------")
+            print(f"{model_name} Results for {set}:")
+            print("Optimal Threshold: %.4f" % optimal_threshold)
+            
+            y_true = df[label]
+            y_pred_proba = model.predict_proba(df.drop(label,axis=1))[:,-1]
+            result_metrics = compute_metrics_binary(y_true, y_pred_proba = y_pred_proba,threshold = optimal_threshold,verbose=1)
+          print("\n---------------------------------------")
