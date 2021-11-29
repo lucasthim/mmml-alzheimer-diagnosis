@@ -81,4 +81,4 @@ def calculate_metrics(models,datasets,df_rocs,label):
             y_true = df[label]
             y_pred_proba = model.predict_proba(df.drop(label,axis=1))[:,-1]
             result_metrics = compute_metrics_binary(y_true, y_pred_proba = y_pred_proba,threshold = optimal_threshold,verbose=1)
-          print("\n---------------------------------------")
+        print("\n---------------------------------------")
