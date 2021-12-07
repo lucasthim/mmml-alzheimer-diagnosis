@@ -50,6 +50,9 @@ class DummyModel():
         self.slice = slice
         self.threshold = threshold
 
+    def fit(self,X,y):
+        pass
+    
     def predict(self,X,y=None):
         x = X[self.slice].copy()
         x[x >= self.threshold] = 1
