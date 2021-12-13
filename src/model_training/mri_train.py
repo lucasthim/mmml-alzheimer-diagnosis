@@ -585,7 +585,7 @@ def evaluate_trained_model(model='shallow_cnn',
     Returns
     ----------
 
-    Dataset along with model predictions on column CNN_SCORE.
+    Tuple containing dataset along with model predictions on column CNN_SCORE.
 
     '''
 
@@ -610,7 +610,7 @@ def evaluate_trained_model(model='shallow_cnn',
     for set_type,df in zip(['Training','Validation','Test'],[df_train_reference, df_validation_reference, df_test_reference]):
 
         print(f"\n{set_type} set:")
-        _,predictions = evaluate_model(df,model,compute_predictions=True)
+        _,predictions = evaluate_model_on_dataset(df,model,compute_predictions=True)
         df['CNN_SCORE'] = predictions.astype(float)
         
         predictions_df.append(df)
@@ -621,7 +621,7 @@ def evaluate_trained_model(model='shallow_cnn',
         df_predictions_final.to_csv(save_predictions_path,index=False)
     return df_predictions_final
 
-def evaluate_model(df_ref,model,compute_predictions=True):
+def evaluate_model_on_dataset(df_ref,model,compute_predictions=True):
     
     '''
     Evaluates a trained model based on the provided dataset.
@@ -655,12 +655,12 @@ def evaluate_model(df_ref,model,compute_predictions=True):
 
     return metrics,predicted_probas
 
-def load_trained_model(model='shallow_cnn',model_path='',verbose=0):
+def load_trained_model(model='shallow_cnn',model_path='',device=device,verbose=0):
     trained_model = load_model(model,verbose=verbose);
     print("Loading trained weights into current model...")
-    trained_model.load_state_dict(torch.load(model_path),strict=True)
-    trained_model.eval()
+    trained_model.load_state_dict(torch.load(model_path,map_location=device),strict=True)
     trained_model.to(device)
+    trained_model.eval()
     return trained_model
 
 def load_model(model_type='shallow_cnn',verbose=0):
