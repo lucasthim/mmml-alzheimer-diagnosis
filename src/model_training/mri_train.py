@@ -17,14 +17,13 @@ from mri_dataset import MRIDataset
 from mri_dataset_generation import generate_mri_dataset_reference
 
 sys.path.append("./../models")
-from neural_network import NeuralNetwork, SuperShallowCNN
+from neural_network import load_model,load_trained_model,device
 from loss import WeightedFocalLoss
 
 sys.path.append("./../model_evaluation")
 from base_evaluation import compute_metrics_binary
 
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using {} device".format(device))
 
 # %load_ext autoreload
@@ -338,28 +337,6 @@ def return_sets(df_mri_reference,classes):
     print("Validation size:",df_validation_reference.shape[0])
     print("Test size:",df_test_reference.shape[0])
     return df_train_reference, df_validation_reference, df_test_reference
-    
-def adapt_resnet(resnet,linear_features = 512):
-    resnet.conv1 = Conv2d(1,64, 7, stride=2,padding=3)
-    resnet.fc = Sequential(
-    Linear(in_features=linear_features, out_features=1000, bias=True),
-    ReLU(inplace=True),
-    Dropout(p=0.5, inplace=False),
-    Linear(in_features=1000, out_features=1, bias=True)
-    )
-    return resnet
-
-def adapt_vgg(vgg):
-    vgg.features[0] = Conv2d(1,64, 3, stride=1,padding=1)
-    vgg.classifier[-1] = Linear(in_features=4096, out_features=1,bias=True)
-    # vgg.classifier = Sequential(
-    # Linear(in_features=7*7*512, out_features=4096, bias=True),
-    # ReLU(inplace=True),
-    # Linear(in_features=4096, out_features=4096, bias=True),
-    # ReLU(inplace=True),
-    # Linear(in_features=4096, out_features=1, bias=True)
-    # )
-    return vgg
 
 def train(train_dataloader,
             validation_dataloader, 
@@ -552,15 +529,6 @@ def print_metrics(train_metrics,train_loss,validation_metrics = None,validation_
         print(f"Recall::    {train_metrics['recall']:.4f}")
         print("Confusion Matrix:\n", train_metrics['conf_mat'])
 
-def count_trainable_parameters(model):
-    pp=0
-    for p in list(model.parameters()):
-        nn=1
-        for s in list(p.size()):
-            nn = nn*s
-        pp += nn
-    print("Total number of trainable parameters:",pp)
-
 def evaluate_trained_model(model='shallow_cnn',
                            model_path='',
                            classes=['AD','CN'],
@@ -654,64 +622,3 @@ def evaluate_model_on_dataset(df_ref,model,compute_predictions=True):
             predicted_probas = predicted_probas.cpu().detach().numpy().ravel()
 
     return metrics,predicted_probas
-
-def load_trained_model(model='shallow_cnn',model_path='',device=device,verbose=0):
-    trained_model = load_model(model,verbose=verbose);
-    print("Loading trained weights into current model...")
-    trained_model.load_state_dict(torch.load(model_path,map_location=device),strict=True)
-    trained_model.to(device)
-    trained_model.eval()
-    return trained_model
-
-def load_model(model_type='shallow_cnn',verbose=0):
-    print("Loading untrained model...")
-    if model_type == 'vgg11':
-        vgg = adapt_vgg(models.vgg11())
-        model = vgg.to(device)
-    
-    elif model_type == 'vgg11_bn':
-        vgg11_bn = adapt_vgg(models.vgg11_bn())
-        model = vgg11_bn.to(device)
-
-    elif model_type == 'vgg13_bn':
-        vgg13_bn = adapt_vgg(models.vgg13_bn())
-        model = vgg13_bn.to(device)
-    
-    elif model_type == 'vgg13':
-        vgg13_bn = adapt_vgg(models.vgg13())
-        model = vgg13_bn.to(device)
-
-    elif model_type == 'vgg19_bn':
-        vgg19_bn = adapt_vgg(models.vgg19_bn())
-        model = vgg19_bn.to(device)
-
-    elif model_type == 'vgg19':
-        vgg19 = adapt_vgg(models.vgg19())
-        model = vgg19.to(device)
-
-    elif model_type == 'resnet34':
-        resnet34 = adapt_resnet(models.resnet34(),linear_features=512)
-        model = resnet34.to(device)
-
-    elif model_type == 'resnet50':
-        resnet50 = adapt_resnet(models.resnet50(),linear_features=2048)
-        model = resnet50.to(device)
-    
-    elif model_type == 'resnet101':
-        resnet101 = adapt_resnet(models.resnet101(),linear_features=2048)
-        model = resnet101.to(device)
-    
-    elif model_type == 'shallow_cnn':
-        custom_nn = NeuralNetwork()
-        model = custom_nn.to(device)
-    elif model_type == 'super_shallow_cnn':
-        custom_nn = SuperShallowCNN()
-        model = custom_nn.to(device)
-    else:
-        custom_nn = NeuralNetwork()
-        model = custom_nn.to(device)
-    if verbose > 0:
-      print(model)
-      print('')
-      count_trainable_parameters(model)
-    return model

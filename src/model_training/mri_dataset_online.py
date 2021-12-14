@@ -199,24 +199,3 @@ class MRIDatasetOnline2(Dataset):
 
     def _rotate_image(self,image_2d,rotation_angle):
         return ndimage.rotate(image_2d, rotation_angle, reshape=False)
-
-# custom dataset class for albumentations library
-class AlbumentationImageDataset(Dataset):
-def __init__(self, image_list):
-    self.image_list = image_list
-    self.aug = A.Compose({
-    A.CenterCrop(90, 90),
-    A.Rotate(limit=(-15, 15)),
-    A.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-    })
-        
-def __len__(self):
-    return (len(self.image_list))
-
-def __getitem__(self, i):
-    image = plt.imread(self.image_list[i])
-    image = Image.fromarray(image).convert('RGB')
-    image = self.aug(image=np.array(image))['image']
-    image = np.transpose(image, (2, 0, 1)).astype(np.float32)
-        
-    return torch.tensor(image, dtype=torch.float)
