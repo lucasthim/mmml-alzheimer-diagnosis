@@ -29,96 +29,139 @@ class MRIExplainer:
 
     image_id: IMAGE_DATA_ID ou IMAGEUID to be explained.
 
-    classes: tuple or list containing the classes of the problem. Options are (AD,CN) or (MCI,CN)
-
-    prediction_reference: Dataframe reference file containing the predictions, true labels and model location for the classification problem.
+    prediction_reference: Dataframe reference containing the predictions, true labels and 
+    model location for the classification problem. Can be either a path or dataframe object.
 
     device: Device to load the model and images. Options are 'cuda' or 'cpu'.
     '''
-    
-    def __init__(self,image_id,classes=['AD','CN'],prediction_reference='',device=device):
+
+    def __init__(self,image_id,prediction_reference='',device=device):
         self.image_id = image_id
-        self.classes = classes
         self.device = device
         
-        if isinstance(prediction_reference,pd.DataFrame):
-            self.df_prediction_ref = prediction_reference
-        else:
-            self.df_prediction_ref = pd.read_csv(prediction_reference)
-
         self.images = {}
         self.models = {}
+        self.explanations = {}
+        
+        df_ref = prediction_reference
+        if isinstance(prediction_reference,str):
+            df_ref = pd.read_csv(prediction_reference)
+        self.df_reference = self._get_image_reference(df_ref,image_id)
+    
+    @staticmethod
+    def _get_image_reference(df,image_id):
+        df = df.query("IMAGE_DATA_ID == @image_id")
+        df.columns = df.columns.str.upper()
+        return df
 
-    def explain(self,orientation=None,algorithm=DeepLift):
+    def explain(self,orientation=None,algorithm='IntegratedGradients'):
 
         if orientation is None:
-            orientations = ['coronal','sagittal','axial']
-            for current_orientation in orientations:
-                self.explain(orientation = current_orientation,algorithm=algorithm)
+            orientation = ['coronal','sagittal','axial']
         
-        df = self.df_prediction_ref.loc[self.df_prediction_ref['ORIENTATION'] == orientation]
-        model_path = df.iloc[0]['MODEL_PATH']
-        model_name = df.iloc[0]['MODEL_NAME']
-        slice = df.iloc[0]['SLICE']
+        if isinstance(orientation,list):
+            for current_orientation in orientation:
+                self.explain(orientation = current_orientation,algorithm = algorithm)
         
-        net = self.load_model(orientation, model_name, model_path)
+        img_info = self.df_reference.query("ORIENTATION == @orientation").iloc[0]
+
+        predict_label = 1 if img_info['CNN_SCORE'] >= 0.5 else 0
+        true_label = img_info['MACRO_GROUP']
+        print('Target:',true_label, 
+        'Predict Label (0.5 threshold):',predict_label,
+        'Predicted Probability:', img_info['CNN_SCORE'])
         
-        image = self.load_image(orientation,slice)
-        image =image.view(-1,1, 100,100)
-        image.requires_grad = True
-        image = image.to(self.device)
 
-        _, = DeepLift(net,image)
+        net = self._get_model(orientation, model_name=img_info['MODEL'], model_path=img_info['MODEL_PATH'])
+        image = self._get_image(orientation,image_path = img_info['IMAGE_PATH'])
+        self._explain_image(orientation,net,image,algorithm)
 
-
-    def load_image(self,orientation,slice):
+    def _get_image(self,orientation,image_path):
         if self.images.get(orientation) is None:
-            path = '' #pegar path do dataframe de referencia com slice e orientation
-            # Acho q vou ter q gerar um novo dataframe de referencia contendo path da imagem, path do modelo, nome da imagem e nome do modelo
-            X = np.load(path)['arr_0']
-            self.images[orientation] = torch.from_numpy(X/X.max())
-
+            
+            X = np.load(image_path)['arr_0']
+            X = torch.from_numpy((X/X.max()).copy())
+            X = X.view(-1,1, 100,100) #Transforms 100x100 in 1x100x100. Image with one channel.
+            X.requires_grad = True
+            X = X.to(self.device)
+            self.images[orientation] = X
+            del [X]
         return self.images[orientation]
-        # TODO: tirar logica daqui dessa funcao de baixo. 
-    def get_images_and_labels(df):
-        '''
-        Load images into memory as PyTorch tensors
-        '''
-
-        image_paths = df['IMAGE_PATH']
-        imgs = []
-        start_total = datetime.now()
-        for path in image_paths:
-            start = datetime.now()
-            print(f"\nProcessing {path}")
-            X = np.load(path)['arr_0']
-            X = torch.from_numpy(X/X.max())
-            # X = X.to(device)
-            # print(f"Image normalized")
-            imgs.append(X)
-            print("Loop took: % 2.2f seconds" % (datetime.now() - start).seconds)
-        labels = df['MACRO_GROUP'].tolist()
-        print("Total processing time: % 2.2f" % (datetime.now() - start_total).seconds)
-        return imgs,labels
-
-
-
-
-    def load_model(self,orientation,model_name,model_path):
+    
+    def _get_model(self,orientation,model_name,model_path):
         if self.models.get(orientation) is None:
             self.models[orientation] = load_trained_model(model=model_name,model_path=model_path,device=self.device)
+            self.models[orientation].zero_grad()
         return self.models[orientation]
+    
+    def _explain_image(self,orientation,net, image, algorithm):
+        
+        transpose_array = (2,1,0)
+        net.zero_grad()
+        explain_input = image.unsqueeze(0)
+        original_image = np.transpose(explain_input.squeeze(0).cpu().detach().numpy(), transpose_array)
+        original_image = np.rot90(original_image)
+        
+        if self.explanations.get(orientation + '_' + algorithm) is not None:
+            explanation_image = self.explanations[orientation + '_' + algorithm]
+            _ = viz.visualize_image_attr(explanation_image, original_image, method="blended_heat_map", sign="absolute_value", 
+                                    outlier_perc=10, show_colorbar=True, 
+                                    title=f"Overlayed {algorithm} explanation for {self.orientation} orientation")
+            return 
+            
+        if algorithm == 'IntegratedGradients':
+            ig = IntegratedGradients(net)
+            nt = NoiseTunnel(ig)
+            explanation_image = self._attribute_image_features(nt, explain_input,labels=0, baselines=explain_input * 0, nt_type='smoothgrad_sq',
+                                                nt_samples=100, stdevs=0.2,internal_batch_size=10)
+        elif algorithm == 'DeepLift':
+            dl = DeepLift(net)
+            explanation_image = self._attribute_image_features(dl, explain_input,labels=0, baselines=explain_input * 0)
+        else:
+            raise("Explanation options available are DeepLift or IntegratedGradients")
+        
+        #TODO: Remove these 90º rotations after fixing input image rotation issue
+        explanation_image = np.transpose(explanation_image.squeeze(0).cpu().detach().numpy(), transpose_array)
+        explanation_image = np.rot90(explanation_image)
 
-prediction_reference = ''
-explainer = MRIExplainer(image_id='I689023',
-                                        classes=['AD','CN'],
-                                        prediction_reference=prediction_reference,
-                                        model_reference='vgg19_bn')
+        _ = viz.visualize_image_attr(explanation_image, original_image, method="blended_heat_map", sign="absolute_value", 
+                                    outlier_perc=10, show_colorbar=True, 
+                                    title=f"Overlayed {algorithm} explanation for {orientation} orientation")
+        
+        self.explanations[orientation + '_' + algorithm] = explanation_image
+        
+    def _attribute_image_features(self,algorithm, input, labels, **kwargs):
+        
+        tensor_attributions = algorithm.attribute(input,
+                                                target=labels,
+                                                **kwargs
+                                                )
+        return tensor_attributions
 
-explainer.explain(orientation='coronal',algorithm=DeepLift)
-explainer.explain(orientation='axial',algorithm=DeepLift)
-explainer.explain(orientation='sagittal',algorithm=DeepLift)
+# prediction_reference = ''
+# explainer = MRIExplainer(image_id='I689023',
+#                         prediction_reference=prediction_reference,
+#                         device=device)
 
-explainer.explain(algorithm=DeepLift)
+# explainer.explain(orientation='coronal',algorithm=DeepLift)
+# explainer.explain(orientation='axial',algorithm=DeepLift)
+# explainer.explain(orientation='sagittal',algorithm=DeepLift)
+# explainer.explain(algorithm=DeepLift)
 
+def show_images(dataloader):
 
+    # get some random training images
+    dataiter = iter(dataloader)
+    images, labels = dataiter.next()
+
+    # show images
+    imshow(torchvision.utils.make_grid(images))
+    # print labels
+    print(' '.join('%5s' % labels[j] for j in range(batch_size)))
+
+def imshow(img):
+    # img = img / 2 + 0.5     # unnormalize
+    npimg = img.numpy()
+    plt.imshow(np.transpose(npimg, (1, 2, 0)))
+    plt.show()
+   
