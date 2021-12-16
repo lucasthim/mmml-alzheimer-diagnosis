@@ -42,6 +42,7 @@ class MRIExplainer:
         self.images = {}
         self.models = {}
         self.explanations = {}
+        self.orientations = []
         
         df_ref = prediction_reference
         if isinstance(prediction_reference,str):
@@ -54,27 +55,27 @@ class MRIExplainer:
         df.columns = df.columns.str.upper()
         return df
 
-    def explain(self,orientation=None,algorithm='IntegratedGradients'):
+    def explain(self,orientation=None,algorithm='IntegratedGradients',**algorithm_kwargs):
 
         if orientation is None:
             orientation = ['coronal','sagittal','axial']
-        
-        if isinstance(orientation,list):
+
+        if isinstance(orientation,str):
+            img_info = self.df_reference.query("ORIENTATION == @orientation").iloc[0]
+            predict_label = 1 if img_info['CNN_SCORE'] >= 0.5 else 0
+            true_label = img_info['MACRO_GROUP']
+            print('Target:',true_label, 
+            'Predict Label (0.5 threshold):',predict_label,
+            'Predicted Probability:', img_info['CNN_SCORE'])
+
+            net = self._get_model(orientation, model_name=img_info['MODEL'], model_path=img_info['MODEL_PATH']);
+            image = self._get_image(orientation,image_path = img_info['IMAGE_PATH'])
+            self._explain_image(orientation,net,image,algorithm,**algorithm_kwargs)
+
+        elif isinstance(orientation,list):
             for current_orientation in orientation:
+                print(f"Explaining {current_orientation} orientation")
                 self.explain(orientation = current_orientation,algorithm = algorithm)
-        
-        img_info = self.df_reference.query("ORIENTATION == @orientation").iloc[0]
-
-        predict_label = 1 if img_info['CNN_SCORE'] >= 0.5 else 0
-        true_label = img_info['MACRO_GROUP']
-        print('Target:',true_label, 
-        'Predict Label (0.5 threshold):',predict_label,
-        'Predicted Probability:', img_info['CNN_SCORE'])
-        
-
-        net = self._get_model(orientation, model_name=img_info['MODEL'], model_path=img_info['MODEL_PATH'])
-        image = self._get_image(orientation,image_path = img_info['IMAGE_PATH'])
-        self._explain_image(orientation,net,image,algorithm)
 
     def _get_image(self,orientation,image_path):
         if self.images.get(orientation) is None:
@@ -90,33 +91,38 @@ class MRIExplainer:
     
     def _get_model(self,orientation,model_name,model_path):
         if self.models.get(orientation) is None:
-            self.models[orientation] = load_trained_model(model=model_name,model_path=model_path,device=self.device)
-            self.models[orientation].zero_grad()
+            self.models[orientation] = load_trained_model(model=model_name,model_path=model_path,device=self.device);
+            self.models[orientation].zero_grad();
         return self.models[orientation]
     
-    def _explain_image(self,orientation,net, image, algorithm):
+    def _explain_image(self,orientation,net, image, algorithm,**algorithm_kwargs):
         
         transpose_array = (2,1,0)
         net.zero_grad()
-        explain_input = image.unsqueeze(0)
-        original_image = np.transpose(explain_input.squeeze(0).cpu().detach().numpy(), transpose_array)
+        original_image = np.transpose(image.squeeze(0).cpu().detach().numpy(), transpose_array)
         original_image = np.rot90(original_image)
         
         if self.explanations.get(orientation + '_' + algorithm) is not None:
             explanation_image = self.explanations[orientation + '_' + algorithm]
             _ = viz.visualize_image_attr(explanation_image, original_image, method="blended_heat_map", sign="absolute_value", 
                                     outlier_perc=10, show_colorbar=True, 
-                                    title=f"Overlayed {algorithm} explanation for {self.orientation} orientation")
+                                    title=f"Overlayed {algorithm} explanation for {orientation} orientation")
             return 
             
         if algorithm == 'IntegratedGradients':
+            if algorithm_kwargs is None:
+              algorithm_kwargs = {
+                'nt_type':'smoothgrad_sq',
+                'nt_samples':20, 
+                'stdevs':0.2,
+                'internal_batch_size':10
+              }
             ig = IntegratedGradients(net)
             nt = NoiseTunnel(ig)
-            explanation_image = self._attribute_image_features(nt, explain_input,labels=0, baselines=explain_input * 0, nt_type='smoothgrad_sq',
-                                                nt_samples=100, stdevs=0.2,internal_batch_size=10)
+            explanation_image = self._attribute_image_features(nt, image,labels=0, baselines=image * 0,**algorithm_kwargs)
         elif algorithm == 'DeepLift':
             dl = DeepLift(net)
-            explanation_image = self._attribute_image_features(dl, explain_input,labels=0, baselines=explain_input * 0)
+            explanation_image = self._attribute_image_features(dl, image,labels=0, baselines=image * 0,**algorithm_kwargs)
         else:
             raise("Explanation options available are DeepLift or IntegratedGradients")
         
@@ -138,30 +144,13 @@ class MRIExplainer:
                                                 )
         return tensor_attributions
 
-# prediction_reference = ''
-# explainer = MRIExplainer(image_id='I689023',
-#                         prediction_reference=prediction_reference,
-#                         device=device)
-
-# explainer.explain(orientation='coronal',algorithm=DeepLift)
-# explainer.explain(orientation='axial',algorithm=DeepLift)
-# explainer.explain(orientation='sagittal',algorithm=DeepLift)
-# explainer.explain(algorithm=DeepLift)
-
 def show_images(dataloader):
 
-    # get some random training images
     dataiter = iter(dataloader)
     images, labels = dataiter.next()
-
-    # show images
     imshow(torchvision.utils.make_grid(images))
-    # print labels
-    print(' '.join('%5s' % labels[j] for j in range(batch_size)))
 
 def imshow(img):
-    # img = img / 2 + 0.5     # unnormalize
     npimg = img.numpy()
     plt.imshow(np.transpose(npimg, (1, 2, 0)))
     plt.show()
-   
