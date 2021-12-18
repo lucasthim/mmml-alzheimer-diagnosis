@@ -6,9 +6,6 @@ import matplotlib.pyplot as plt
 from interpret.glassbox import ExplainableBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 
-sys.path.append("./../model_evaluation")
-from ensemble_evaluation import calculate_rocs,calculate_metrics
-
 def prepare_ensemble_experiment_set(cognitive_predictions_path,mri_predictions_path):
     
     df_mri = prepare_mri_predictions(mri_predictions_path)
@@ -40,11 +37,6 @@ def train_ensemble_models(df_train,label,models):
         trained_models.append(model)
     return trained_models
 
-def calculate_experiment_performance(models,datasets,label):
-    df_rocs = calculate_rocs(models,datasets,label)
-    calculate_metrics(models,datasets,df_rocs,label)
-    return df_rocs
-
 class DummyModel():
     def __init__(self,slice,threshold=0.5):
         self.slice = slice
@@ -69,3 +61,5 @@ class CNN3Slices(DummyModel): pass
 class CNN3SlicesCogScore(DummyModel): pass
 class CNN3SlicesDemographics(DummyModel): pass
 class CDRSB(DummyModel): pass
+
+
