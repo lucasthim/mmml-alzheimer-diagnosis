@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from base_evaluation import *
 
 
-def compare_ensembles_performance(dataset,df_rocs,label,model_names):
+def compare_ensembles_performance_on_dataset(dataset,df_rocs,label,model_names):
     '''
     Compare the performance of several ensemble models against each other.
     Plots comparison bar plots for AUC,Accuracy,F1,Recall and Precision.
@@ -21,9 +21,10 @@ def compare_ensembles_performance(dataset,df_rocs,label,model_names):
 
     pass
 
-def compare_ensembles_rocs(df:pd.DataFrame,label:str,model_names:list):
+def compare_ensembles_rocs_on_dataset(df:pd.DataFrame,label:str,model_names:list):
     '''
     Compare ROC curves of several predictors by plotting the curves and their respective AUCs.
+    
 
     Parameters
     ------------
@@ -49,7 +50,7 @@ def compare_ensembles_rocs(df:pd.DataFrame,label:str,model_names:list):
       fpr, tpr, thresholds = metrics.roc_curve(y_true, y_proba, drop_intermediate=False)
       auc = metrics.auc(fpr, tpr)
       df_results.loc[model,'AUC'] = auc
-      df_results.loc[model,'Optimal_Threshold'] = find_optimal_cutoff(fpr, tpr, thresholds)
+      _,_,df_results.loc[model,'Optimal_Threshold'] = find_optimal_cutoff(fpr, tpr, thresholds)
     
       plt.plot(fpr, tpr, label=model + '(AUC = %.4f'%auc + ')')
 
@@ -63,8 +64,7 @@ def compare_ensembles_rocs(df:pd.DataFrame,label:str,model_names:list):
     plt.show()
     return df_results
 
-
-def calculate_experiment_performance(models,datasets,label):
+def calculate_experiment_performance_on_datasets(models,datasets,label):
     
     '''
     Calculate the performance of an experiment by calculating the ROC and some other metrics.
@@ -79,11 +79,11 @@ def calculate_experiment_performance(models,datasets,label):
     label: Label column in the datasets.
     '''
     
-    df_rocs = calculate_rocs(models,datasets,label)
-    calculate_metrics(models,datasets,df_rocs,label)
+    df_rocs = calculate_rocs_on_datasets(models=models,datasets=datasets,label=label)
+    calculate_metrics_on_datasets(models,datasets,df_rocs,label)
     return df_rocs
 
-def calculate_rocs(models:list,datasets:list,dataset_names:list=['Train','Validation','Test'],label:str ='MACRO_GROUP'):
+def calculate_rocs_on_datasets(models:list,datasets:list,dataset_names:list=['Train','Validation','Test'],label:str ='MACRO_GROUP'):
     '''
     Function that calculates the ROC curve along with some statistics
     for a list of given models for Train,Validation and Test.
@@ -114,13 +114,14 @@ def set_threshold_for_test(df_rocs,models,reference='Validation'):
   '''
   Set the optimal threshold value for test set based on the validation or train threshold.
   '''
-  # TODO: Ta com erro aqui!
+
   for model in models:
-    reference_threshold = df_rocs.query("index == @model and set == @reference").iloc[0]['Optimal_Thresh']
-    df_rocs.loc[(df_rocs['set'] == 'Test') & (df_rocs['model'] == model),'Optimal_Thresh'] = reference_threshold
+    model_name = type(model).__name__ if not(isinstance(model,str)) else model
+    reference_threshold = df_rocs.query("index == @model_name and set == @reference").iloc[0]['Optimal_Thresh']
+    df_rocs.loc[(df_rocs['set'] == 'Test') & (df_rocs.index == model_name),'Optimal_Thresh'] = reference_threshold
   return df_rocs
 
-def calculate_metrics(models:list,datasets:list,df_rocs:pd.DataFrame,label:str):
+def calculate_metrics_on_datasets(models:list,datasets:list,df_rocs:pd.DataFrame,label:str):
 
     for set,df in zip(['Train','Validation','Test'],datasets):
         for model in models:

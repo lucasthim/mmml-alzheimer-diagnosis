@@ -106,7 +106,7 @@ def calculate_and_plot_roc(df, models, levels=[0.75,0.9],label='DIAGNOSIS',set='
         else:
             y_proba = model.predict_proba(df.drop(label,axis=1))[:,-1]
             model_name = type(model).__name__
-
+        roc_df.loc[model_name,'Model'] = model
         # Compute False postive rate, and True positive rate
         fpr, tpr, thresholds = roc_curve(true_labels, y_proba, drop_intermediate=False)
         # Calculate Area under the curve to display on the plot
@@ -134,7 +134,7 @@ def calculate_and_plot_roc(df, models, levels=[0.75,0.9],label='DIAGNOSIS',set='
         roc_df.loc[model_name, ['Spe_CI_low', 'Spe_CI_high']] = calculate_confidence_interval_specificity(roc_df.loc[model_name, 'Optimal_Spe'], true_labels)
 
         # Plot the computed values
-        plt.plot(fpr, tpr, label=model_name)
+        plt.plot(fpr, tpr, label=model_name + '(AUC = %.4f'%roc_df.loc[model_name, 'AUC'] + ')')
     # Custom settings for the plot
     plt.plot([0, 1], [0, 1], 'r--')
     plt.xlim([0.0, 1.0])

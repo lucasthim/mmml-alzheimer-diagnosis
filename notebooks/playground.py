@@ -8,7 +8,7 @@ from ensemble_train import DummyModel
 
 os.chdir('/home/lucas/projects/mmml-alzheimer-diagnosis/src/model_evaluation/')
 from base_evaluation import find_optimal_cutoff
-from ensemble_evaluation import calculate_metrics,calculate_rocs
+from ensemble_evaluation import calculate_metrics_on_datasets,calculate_rocs_on_datasets
 
 os.chdir('/home/lucas/projects/mmml-alzheimer-diagnosis/')
 
@@ -56,8 +56,8 @@ opt_threshold = find_optimal_threshold(df[predict_proba],df[label])
 models = [DummyModel(slice='CNN_SCORE')]
 datasets=[df_train,df_validation,df_test]
 
-df_rocs_cnns = calculate_rocs(models=models,datasets=datasets,label='MACRO_GROUP')
-calculate_metrics(models,datasets,df_rocs_cnns,label)
+df_rocs_cnns = calculate_rocs_on_datasets(models=models,datasets=datasets,label='MACRO_GROUP')
+calculate_metrics_on_datasets(models,datasets,df_rocs_cnns,label)
 # %%
 #############################################################
 #############################################################

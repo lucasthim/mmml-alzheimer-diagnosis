@@ -12,6 +12,7 @@ def prepare_ensemble_experiment_set(cognitive_predictions_path,mri_predictions_p
     df_cog = pd.read_csv(cognitive_predictions_path)
     df_cog_final = df_cog.query("DATASET in  ('train','test','validation')")[['SUBJECT','IMAGE_DATA_ID','DATASET','COGTEST_SCORE','DIAGNOSIS']].reset_index(drop=True)
     df_ensemble = df_mri.drop(['MACRO_GROUP'],axis=1).merge(df_cog_final,on=['SUBJECT','IMAGE_DATA_ID','DATASET'])
+    df_ensemble = df_ensemble.set_index("IMAGE_DATA_ID").sort_index()
     return df_ensemble
 
 def prepare_mri_predictions(mri_data_path):
@@ -24,7 +25,7 @@ def prepare_mri_predictions(mri_data_path):
     df_mri.reset_index(inplace=True)
     return df_mri
 
-def get_experiment_sets(df_ensemble,cols_to_drop = ['SUBJECT','IMAGE_DATA_ID','DATASET']):
+def get_experiment_sets(df_ensemble,cols_to_drop = ['SUBJECT','DATASET']):
     df_train = df_ensemble.query("DATASET == 'train'").drop(cols_to_drop,axis=1).fillna(0)
     df_validation = df_ensemble.query("DATASET == 'validation'").drop(cols_to_drop,axis=1).fillna(0)
     df_test = df_ensemble.query("DATASET == 'test'").drop(cols_to_drop,axis=1).fillna(0)
