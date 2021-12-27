@@ -117,7 +117,7 @@ def set_threshold_for_test(df_rocs,models,reference='Validation'):
 
   for model in models:
     model_name = type(model).__name__ if not(isinstance(model,str)) else model
-    reference_threshold = df_rocs.query("index == @model_name and set == @reference").iloc[0]['Optimal_Thresh']
+    reference_threshold = df_rocs.query("set == @reference").query("index == @model_name").iloc[0]['Optimal_Thresh'] #queries have to separated for compatibility between older versions of pandas
     df_rocs.loc[(df_rocs['set'] == 'Test') & (df_rocs.index == model_name),'Optimal_Thresh'] = reference_threshold
   return df_rocs
 
@@ -126,7 +126,7 @@ def calculate_metrics_on_datasets(models:list,datasets:list,df_rocs:pd.DataFrame
     for set,df in zip(['Train','Validation','Test'],datasets):
         for model in models:
             model_name = type(model).__name__
-            optimal_threshold = df_rocs.query("index== @model_name and set == @set")['Optimal_Thresh'].values[0]
+            optimal_threshold = df_rocs.query("set == @reference").query("index == @model_name")['Optimal_Thresh'].values[0] #queries have to separated for compatibility between older versions of pandas
 
             print(f"{model_name} Results for {set}:")
             print("Optimal Threshold: %.4f" % optimal_threshold)
