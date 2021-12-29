@@ -118,7 +118,7 @@ def set_threshold_for_test(df_rocs,models,reference='Validation'):
   for model in models:
     model_name = type(model).__name__ if not(isinstance(model,str)) else model
     reference_threshold = df_rocs.query("index == @model_name and set == @reference").iloc[0]['Optimal_Thresh']
-    df_rocs.loc[(df_rocs['set'] == 'Test') & (df_rocs.index == model_name),'Optimal_Thresh'] = reference_threshold
+    df_rocs.loc[(df_rocs['set'] == 'Test') & (df_rocs['index'] == model_name),'Optimal_Thresh'] = reference_threshold
   return df_rocs
 
 def calculate_metrics_on_datasets(models:list,datasets:list,df_rocs:pd.DataFrame,label:str):
