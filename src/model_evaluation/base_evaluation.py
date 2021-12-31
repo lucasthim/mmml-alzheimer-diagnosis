@@ -235,21 +235,28 @@ def get_numpy_array(arr):
         return np.array(arr)
     return arr
 
-def check_auc_difference(models,datasets,label='MACRO_GROUP',alpha=0.05):
+def check_auc_difference(models,datasets,label='MACRO_GROUP',alpha=0.05,verbose=1):
+    
+    df_pvalues = pd.DataFrame(columns=models)
     for model1,model2 in combinations(models,2):
-        print(f"Comparing AUCs between {model1} and {model2}:")
+        if verbose > 0:
+            print(f"Comparing AUCs between {model1} and {model2}:")
         for set,df in zip(['Validation','Test'],datasets[1:]):
             
             log10_pvalue = delong_roc_test(df[label], df[model1], df[model2])
             pvalue = 10** log10_pvalue
-            print(f"set: {set}")
-            print(" p-value = %.4f" % pvalue)
+            df_pvalues.loc[model1,model2] = np.round(pvalue[0][0],decimals=4)
+            df_pvalues.loc[model2,model1] = np.round(pvalue[0][0],decimals=4)
+            if verbose > 0:
+                print(f"set: {set}")
+                print(" p-value = %.4f" % pvalue)
+                ci = int((1 - alpha) * 100)
+                if pvalue <= alpha:
+                    print(f" Refect null hypothesis: AUCs are statistically different with {ci}% confidence.")
+                else:
+                    print(" Cannot reject null hypothesis. AUCs are statistically the same.")
 
-            ci = int((1 - alpha) * 100)
-            if pvalue <= alpha:
-                print(f" Refect null hypothesis: AUCs are statistically different with {ci}% confidence.")
-            else:
-                print(" Cannot reject null hypothesis. AUCs are statistically the same.")
-
-            print("")
-        print("------------------------------------------")
+                print("")
+        if verbose > 0:
+            print("------------------------------------------")
+    return df_pvalues
