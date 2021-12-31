@@ -1,9 +1,7 @@
-# %%
 import pandas as pd
 import numpy as np
 
 
-# %%
 def execute_ensemble_preprocessing(preprocessed_cognitive_data_path,
                             preprocessed_mri_raw_data_path,
                             ensemble_data_output_path,
@@ -36,7 +34,8 @@ def execute_ensemble_preprocessing(preprocessed_cognitive_data_path,
         df_ensemble['MACRO_GROUP'].replace({'AD':1,'CN':0,'MCI':2},inplace=True)
     print("Initial data merged!")
     
-    df_ensemble = mark_conflicting_diagnosis(df_ensemble)
+    df_ensemble = remove_conflicting_diagnosis(df_ensemble)
+    df_ensemble = remove_missing_mris_in_validation(df_ensemble)
     df_ensemble = df_ensemble.query("MACRO_GROUP in @classes")
 
     print("Saving ensemble reference file...")
@@ -52,14 +51,17 @@ def remove_duplicates(df_mri):
     duplicated = df_mri[['SUBJECT','IMAGEUID']].duplicated(keep='first')
     return df_mri[~duplicated]
 
-def mark_conflicting_diagnosis(df_ensemble):
+def remove_conflicting_diagnosis(df_ensemble):
     diff = df_ensemble.query("DIAGNOSIS != MACRO_GROUP")['IMAGEUID']
     print(f"Found {diff.shape[0]} cases with diverging diagnosis between MRI and Cognitive Tests.")
     df_ensemble['CONFLICT_DIAGNOSIS'] = False
     df_ensemble.loc[df_ensemble['DIAGNOSIS'] != df_ensemble['MACRO_GROUP'],'CONFLICT_DIAGNOSIS'] = True
-    return df_ensemble
+    return df_ensemble.query("CONFLICT_DIAGNOSIS == False")
 
-# %%
+def remove_missing_mris_in_validation(df_ensemble):
+    missing_axial_mris_validation = [293688, 274525,280596]
+    return df_ensemble.query("IMAGEUID not in @missing_axial_mris_validation")
+
 if __name__ == '__main__':
     preprocessed_cognitive_data_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/COGNITIVE_DATA_PREPROCESSED.csv'
     preprocessed_mri_raw_data_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/PREPROCESSED_MRI_REFERENCE.csv'
@@ -67,4 +69,3 @@ if __name__ == '__main__':
     ensemble_data_output_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv'
     df_ensemble,df_cog,df_mri = execute_ensemble_preprocessing(preprocessed_cognitive_data_path,preprocessed_mri_raw_data_path,classes = classes,ensemble_data_output_path=ensemble_data_output_path)
 
-# %%

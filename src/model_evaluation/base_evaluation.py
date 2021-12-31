@@ -1,15 +1,15 @@
 import math
+from itertools import combinations
 
 import torch
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
 from scipy.interpolate import interp1d
 from scipy.special import erfcinv
-
 from sklearn.metrics import roc_auc_score,roc_curve,auc, f1_score, precision_score, recall_score, accuracy_score, confusion_matrix
 
+from de_long_evaluation import delong_roc_test
 
 def compute_metrics_binary(y_true, y_pred_proba,threshold = 0.5,verbose=0):
     '''
@@ -68,7 +68,7 @@ def compute_metrics_binary(y_true, y_pred_proba,threshold = 0.5,verbose=0):
     }
     return metrics
 
-def calculate_and_plot_roc(df, models, levels=[0.75,0.9],label='DIAGNOSIS',set='Train'):
+def calculate_and_plot_roc(df, models, levels=[0.75,0.9],label='DIAGNOSIS',set='Train',title_prefix=''):
     
     '''
     Function that calculates and plots the ROC Curve along with some statistics
@@ -134,14 +134,14 @@ def calculate_and_plot_roc(df, models, levels=[0.75,0.9],label='DIAGNOSIS',set='
         roc_df.loc[model_name, ['Spe_CI_low', 'Spe_CI_high']] = calculate_confidence_interval_specificity(roc_df.loc[model_name, 'Optimal_Spe'], true_labels)
 
         # Plot the computed values
-        plt.plot(fpr, tpr, label=model_name + '(AUC = %.4f'%roc_df.loc[model_name, 'AUC'] + ')')
+        plt.plot(fpr, tpr, label=model_name + ' (AUC = %.3f'%roc_df.loc[model_name, 'AUC'] + ')')
     # Custom settings for the plot
     plt.plot([0, 1], [0, 1], 'r--')
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])
     plt.xlabel('1-Specificity(False Positive Rate)')
     plt.ylabel('Sensitivity(True Positive Rate)')
-    plt.title(f'{set} - Receiver Operating Characteristic')
+    plt.title(title_prefix  + f'{set} - Receiver Operating Characteristic')
     plt.legend(loc="lower right")
     plt.show()  # Display
     #plt.savefig(filename, format='png', dpi=300)
@@ -234,3 +234,22 @@ def get_numpy_array(arr):
     elif isinstance(arr,list):
         return np.array(arr)
     return arr
+
+def check_auc_difference(models,datasets,label='MACRO_GROUP',alpha=0.05):
+    for model1,model2 in combinations(models,2):
+        print(f"Comparing AUCs between {model1} and {model2}:")
+        for set,df in zip(['Validation','Test'],datasets[1:]):
+            
+            log10_pvalue = delong_roc_test(df[label], df[model1], df[model2])
+            pvalue = 10** log10_pvalue
+            print(f"set: {set}")
+            print(" p-value = %.4f" % pvalue)
+
+            ci = int((1 - alpha) * 100)
+            if pvalue <= alpha:
+                print(f" Refect null hypothesis: AUCs are statistically different with {ci}% confidence.")
+            else:
+                print(" Cannot reject null hypothesis. AUCs are statistically the same.")
+
+            print("")
+        print("------------------------------------------")

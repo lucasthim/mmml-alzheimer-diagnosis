@@ -83,7 +83,7 @@ def calculate_experiment_performance_on_datasets(models,datasets,label):
     calculate_metrics_on_datasets(models,datasets,df_rocs,label)
     return df_rocs
 
-def calculate_rocs_on_datasets(models:list,datasets:list,dataset_names:list=['Train','Validation','Test'],label:str ='MACRO_GROUP'):
+def calculate_rocs_on_datasets(models:list,datasets:list,dataset_names:list=['Train','Validation','Test'],label:str ='MACRO_GROUP',roc_title_prefix:str=''):
     '''
     Function that calculates the ROC curve along with some statistics
     for a list of given models for Train,Validation and Test.
@@ -96,12 +96,14 @@ def calculate_rocs_on_datasets(models:list,datasets:list,dataset_names:list=['Tr
     datasets: list or array containing the Train, Validation and Test sets.
 
     label: indication of which column of the dataset has the true label.
+
+    roc_title_prefix: Prefix to be added to the title of the ROC plot.
     '''
     
     dfs=[]
     for set,df in zip(dataset_names,datasets):
 
-      df_roc,_ = calculate_and_plot_roc(df, models=models,levels=[0.75, 0.9], label=label,set=set)
+      df_roc,_ = calculate_and_plot_roc(df, models=models,levels=[0.75, 0.9], label=label,set=set,title_prefix=roc_title_prefix)
       df_roc['set'] = set
       dfs.append(df_roc)
       print('')
@@ -121,17 +123,38 @@ def set_threshold_for_test(df_rocs,models,reference='Validation'):
     df_rocs.loc[(df_rocs['set'] == 'Test') & (df_rocs['index'] == model_name),'Optimal_Thresh'] = reference_threshold
   return df_rocs
 
-def calculate_metrics_on_datasets(models:list,datasets:list,df_rocs:pd.DataFrame,label:str):
-
+def calculate_metrics_on_datasets(models:list,datasets:list,df_rocs:pd.DataFrame,label:str,verbose=1):
+    all_metrics = []
     for set,df in zip(['Train','Validation','Test'],datasets):
         for model in models:
-            model_name = type(model).__name__
+            if isinstance(model,str):
+                model_name = model
+                y_pred_proba = df[model]
+            else:
+                model_name = type(model).__name__
+                y_pred_proba = model.predict_proba(df.drop(label,axis=1))[:,-1]
+
             optimal_threshold = df_rocs.query("index== @model_name and set == @set")['Optimal_Thresh'].values[0]
 
-            print(f"{model_name} Results for {set}:")
-            print("Optimal Threshold: %.4f" % optimal_threshold)
+            if verbose > 0:
+                print(f"{model_name} Results for {set}:")
+                print("Optimal Threshold: %.4f" % optimal_threshold)
             
             y_true = df[label]
-            y_pred_proba = model.predict_proba(df.drop(label,axis=1))[:,-1]
-            result_metrics = compute_metrics_binary(y_true, y_pred_proba = y_pred_proba,threshold = optimal_threshold,verbose=1)
-        print("\n---------------------------------------")
+            result_metrics = {
+                'set':set,
+                'model':model_name,
+                'prediction_threshold':optimal_threshold
+            }
+            result_metrics.update(compute_metrics_binary(y_true, y_pred_proba = y_pred_proba,threshold = optimal_threshold,verbose=verbose))
+            all_metrics.append(result_metrics)
+        if verbose > 0:
+            print("\n---------------------------------------")
+    
+    df_all_results = pd.DataFrame(all_metrics)
+    df_all_results.columns = df_all_results.columns.str.title()
+    df_all_results = df_all_results[['Set','Model','Auc','F1Score','Accuracy','Precision','Recall','Prediction_Threshold','Conf_Mat']]
+    for col in ['Auc','F1Score','Accuracy','Precision','Recall','Prediction_Threshold']:
+        df_all_results[col] = np.round(1000*df_all_results[col])/1000
+    return df_all_results
+
