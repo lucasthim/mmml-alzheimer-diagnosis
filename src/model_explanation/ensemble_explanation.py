@@ -7,16 +7,27 @@ from matplotlib.patches import Patch
 def show_feature_weights(features, coefficients,model_title, color = None, absolute_values = False, normalized = False,figsize=(8,8),top=None):
 
     '''
-      Show a feature importance bar plot by feature weights.
-      
-      Parameters:
-      features: vector with the feature names
-      coefficients: 1-D array values of weights given to features.
-      model_title: Name of the model
-      color: Tuple to give different colors to positive and negative weights. Example: color = ('red','green')
-      absolute_values: Flag to analyse just absolute values of weights
-      normalized: Flag to normalize the feature weights 
-      top: show only top most important features.
+    Show a feature importance bar plot by feature weights.
+    
+
+    Parameters:
+    -----------
+
+    features: vector with the feature names
+
+    coefficients: 1-D array values of weights given to features.
+
+    model_title: Name of the model
+
+    color: Tuple to give different colors to positive and negative weights. Example: color = ('red','green')
+
+    absolute_values: Flag to analyse just absolute values of weights
+
+    normalized: Flag to normalize the feature weights 
+
+
+    top: show only top most important features.
+
     '''
     
     df_weights = create_normalized_by_feature_weight(features,coefficients);
