@@ -38,6 +38,10 @@ def show_feature_weights(features, coefficients,model_title, color = None, absol
         column = column.replace('Weights','normalized')
 
     df_weights = df_weights.sort_values(by=[column],ascending = True,inplace = False)
+    
+    if top is not None:
+        df_weights = df_weights.iloc[:top]
+    
     fig,ax = plt.subplots(1,figsize=figsize)
     colors = (0.2,0.4,0.8)
     if color is not None:
