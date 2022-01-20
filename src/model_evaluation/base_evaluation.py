@@ -260,3 +260,11 @@ def check_auc_difference(models,datasets,label='MACRO_GROUP',alpha=0.05,verbose=
         if verbose > 0:
             print("------------------------------------------")
     return df_pvalues
+
+def get_optimal_threshold_for_model(model,df,label):
+
+    y_proba = model.predict_proba(df.drop(label,axis=1))[:,-1]
+    y_true = df[label]
+    fpr, tpr, thresholds = roc_curve(y_true, y_proba, drop_intermediate=False)
+    _, _, optimal_threshold = find_optimal_cutoff(fpr, tpr, thresholds)
+    return optimal_threshold

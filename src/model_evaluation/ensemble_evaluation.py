@@ -155,6 +155,6 @@ def calculate_metrics_on_datasets(models:list,datasets:list,df_rocs:pd.DataFrame
     df_all_results.columns = df_all_results.columns.str.title()
     df_all_results = df_all_results[['Set','Model','Auc','F1Score','Accuracy','Precision','Recall','Prediction_Threshold','Conf_Mat']]
     for col in ['Auc','F1Score','Accuracy','Precision','Recall','Prediction_Threshold']:
-        df_all_results[col] = np.round(1000*df_all_results[col])/1000
+        df_all_results[col] = np.round(10000*df_all_results[col])/10000
     return df_all_results
 

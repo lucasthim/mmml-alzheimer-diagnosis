@@ -25,7 +25,7 @@ class MRIExplainer:
     Explain an MRI CNN classification.
 
     Parameters
-    ------------
+    ----------
 
     image_id: IMAGE_DATA_ID ou IMAGEUID to be explained.
 
@@ -48,12 +48,6 @@ class MRIExplainer:
         if isinstance(prediction_reference,str):
             df_ref = pd.read_csv(prediction_reference)
         self.df_reference = self._get_image_reference(df_ref,image_id)
-    
-    @staticmethod
-    def _get_image_reference(df,image_id):
-        df = df.query("IMAGE_DATA_ID == @image_id")
-        df.columns = df.columns.str.upper()
-        return df
 
     def explain(self,orientation=None,algorithm='IntegratedGradients',**algorithm_kwargs):
 
@@ -76,6 +70,11 @@ class MRIExplainer:
             for current_orientation in orientation:
                 print(f"Explaining {current_orientation} orientation")
                 self.explain(orientation = current_orientation,algorithm = algorithm)
+    
+    def _get_image_reference(self,df,image_id):
+        df = df.query("IMAGE_DATA_ID == @image_id")
+        df.columns = df.columns.str.upper()
+        return df
 
     def _get_image(self,orientation,image_path):
         if self.images.get(orientation) is None:
