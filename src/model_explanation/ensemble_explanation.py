@@ -19,10 +19,15 @@ class EnsembleExplainer:
     
 
     '''
-    def __init__(self,model,ensemble_data,patients_data):
+    def __init__(self,model,ensemble_data,patients_data,
+                axial_label='AXIAL_23',coronal_label='CORONAL_43',sagittal_label='SAGITTAL_26'):
         self.ensemble_data = ensemble_data
         self.patients_data = patients_data
         self.model = model
+        self.axial_label=axial_label
+        self.coronal_label=coronal_label
+        self.sagittal_label=sagittal_label
+
 
     def explain(self,sample_id,top_features=10,figsize=(9,5)):
         '''
@@ -44,7 +49,7 @@ class EnsembleExplainer:
         df_weights_ebm = pd.DataFrame(index = feature_names,columns = ['Weights'])
         df_weights_ebm['Weights'] = feature_importances
         df_weights_ebm['abs_Weights'] = np.abs(df_weights_ebm['Weights'])
-        df_weights_ebm = df_weights_ebm.sort_values(by=['abs_Weights'],ascending = True,inplace = False)
+        df_weights_ebm = df_weights_ebm.sort_values(by=['abs_Weights'],ascending = True, inplace = False)
             
         if top_features is not None:
             df_weights_ebm = df_weights_ebm.iloc[-top_features:]
@@ -73,9 +78,9 @@ class EnsembleExplainer:
         age,gender,years_education = features['AGE'],features['GENDER'],features['YEARS_EDUCATION']
         hispanic,race,widowed = features['HISPANIC'],features['RACE'],features['WIDOWED']
         true_diagnosis,predicted_score,predicted_diagnosis = features['DIAGNOSIS'],features['FINAL_PREDICTED_SCORE'],features['FINAL_PREDICTION']
-        axial,coronal,sagittal = features['AXIAL_23'],features['CORONAL_43'],features['SAGITTAL_26']
+        axial,coronal,sagittal = features[self.axial_label],features[self.coronal_label],features[self.sagittal_label]
         plt.figtext(-0.2, -0.2, f'Is Hispanic:{hispanic}    Race:{race}   Is Widowed:{widowed}   Age:{age}    Gender:{gender}   Years of Education:{years_education}', horizontalalignment='left',fontdict={'size':16})
-        plt.figtext(-0.2, -0.3, f'AXIAL_23 score:{axial}    CORONAL_43 score:{coronal}   SAGITTAL_26 score:{sagittal}', horizontalalignment='left',fontdict={'size':16})
+        plt.figtext(-0.2, -0.3, f'{self.axial_label} score:{axial}    {self.coronal_label} score:{coronal}   {self.sagittal_label} score:{sagittal}', horizontalalignment='left',fontdict={'size':16})
         plt.figtext(-0.2, -0.4, f'Predicted Diagnosis: {predicted_diagnosis}   True Diagnosis:{true_diagnosis}', horizontalalignment='left',fontdict={'size':16,'weight':'heavy'})
         
         return fig
