@@ -2,16 +2,14 @@ import sys
 
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 
-from captum.attr import IntegratedGradients
-from captum.attr import Saliency
 from captum.attr import DeepLift
-from captum.attr import DeepLiftShap
 from captum.attr import NoiseTunnel
 from captum.attr import GuidedGradCam
 from captum.attr import visualization as viz
@@ -43,34 +41,44 @@ class MRIExplainer:
         self.models = {}
         self.explanations = {}
         self.orientations = []
-        
+        self.transpose_array = (2,1,0)
+
         df_ref = prediction_reference
         if isinstance(prediction_reference,str):
             df_ref = pd.read_csv(prediction_reference)
         self.df_reference = self._get_image_reference(df_ref,image_id)
 
-    def explain(self,orientation=None,algorithm='IntegratedGradients',**algorithm_kwargs):
-
-        if orientation is None:
-            orientation = ['coronal','sagittal','axial']
-
-        if isinstance(orientation,str):
-            img_info = self.df_reference.query("ORIENTATION == @orientation").iloc[0]
-            predict_label = 1 if img_info['CNN_SCORE'] >= 0.5 else 0
-            true_label = img_info['MACRO_GROUP']
-            print('Target:',true_label, 
-            'Predict Label (0.5 threshold):',predict_label,
-            'Predicted Probability:', img_info['CNN_SCORE'])
-
-            net = self._get_model(orientation, model_name=img_info['MODEL'], model_path=img_info['MODEL_PATH']);
-            image = self._get_image(orientation,image_path = img_info['IMAGE_PATH'])
-            self._explain_image(orientation,net,image,algorithm,**algorithm_kwargs)
-
-        elif isinstance(orientation,list):
-            for current_orientation in orientation:
-                print(f"Explaining {current_orientation} orientation")
-                self.explain(orientation = current_orientation,algorithm = algorithm)
+    def explain_all_orientations(self,figsize=(15,6),original_image_overlay=0.5,outlier_scale=20,separate_negative_contributions = False):
+        explain_kwargs={'figsize':figsize,'original_image_overlay':original_image_overlay,
+                        'outlier_scale':outlier_scale,'separate_negative_contributions':separate_negative_contributions}
+        self.explain_one_orientation(orientation='axial',**explain_kwargs)
+        self.explain_one_orientation(orientation='coronal',**explain_kwargs)
+        self.explain_one_orientation(orientation='sagittal',**explain_kwargs)
     
+    def explain_one_orientation(self,orientation='coronal',figsize=(15,6),original_image_overlay=0.5,outlier_scale=20,separate_negative_contributions = False):
+        
+        '''
+        Explain one orientation prediction with DeepLift and GradCAM algorithms. Plots 4 figures side by side.
+        
+        '''
+
+        img_info = self.df_reference.query("ORIENTATION == @orientation").iloc[0]
+        net = self._get_model(orientation, model_name=img_info['MODEL'], model_path=img_info['MODEL_PATH']);
+        image = self._get_image(orientation,image_path = img_info['IMAGE_PATH'])
+
+        attr_dl = self._make_deeplift_explanation(image,net,smoothing_samples=100)
+        attr_gc = self._make_gradcam_explanation(image,net,smoothing_samples=20)
+
+        original_image = np.transpose(image.squeeze(0).cpu().detach().numpy(), self.transpose_array)
+        original_image = np.rot90(original_image)
+
+        self._show_explanations(original_image,attr_gc,attr_dl,self.image_id,
+                                figsize=figsize,
+                                original_image_overlay=original_image_overlay,
+                                outlier_scale=outlier_scale,
+                                separate_negative_contributions = separate_negative_contributions)
+
+
     def _get_image_reference(self,df,image_id):
         df = df.query("IMAGE_DATA_ID == @image_id")
         df.columns = df.columns.str.upper()
@@ -94,62 +102,138 @@ class MRIExplainer:
             self.models[orientation].zero_grad();
         return self.models[orientation]
     
-    def _explain_image(self,orientation,net, image, algorithm,**algorithm_kwargs):
+    def _make_gradcam_explanation(self,image,net,smoothing_samples=10):
+        gc = GuidedGradCam(net,layer=net.features[-1])
+        nt = NoiseTunnel(gc)
+
+        attr_gc = nt.attribute(image,  nt_type='smoothgrad',
+                                            nt_samples=smoothing_samples, stdevs=0.1)
+
+        attr_gc = np.transpose(attr_gc.squeeze(0).cpu().detach().numpy(), self.transpose_array)
+        attr_gc = np.rot90(attr_gc)
+        return attr_gc
+
+    def _make_deeplift_explanation(self,image,net,smoothing_samples=100):
+        dl = DeepLift(net)
+        nt = NoiseTunnel(dl)
+        attr_dl = nt.attribute(image, baselines=image * 0,  nt_type='smoothgrad',
+                                            nt_samples=smoothing_samples, stdevs=0.2)
+        attr_dl = np.transpose(attr_dl.squeeze(0).cpu().detach().numpy(), self.transpose_array)
+        attr_dl = np.rot90(attr_dl)
+        return attr_dl
+    
+    def _show_explanations(self,plot_image,gradcam_explanation,deeplift_explanation,sample_id,
+                           figsize=(17,8),original_image_overlay=0.5,outlier_scale=20,
+                           separate_negative_contributions=True):
+        '''
+        Shows overlayed local explanations side by side with the original image.
+        '''
+
+        n_plots=3
+        title_y_position = 0.91
+        if separate_negative_contributions: 
+          n_plots=4
+          title_y_position=0.82
+
         
-        transpose_array = (2,1,0)
-        net.zero_grad()
-        original_image = np.transpose(image.squeeze(0).cpu().detach().numpy(), transpose_array)
-        original_image = np.rot90(original_image)
-        
-        if self.explanations.get(orientation + '_' + algorithm) is not None:
-            explanation_image = self.explanations[orientation + '_' + algorithm]
-            _ = viz.visualize_image_attr(explanation_image, original_image, method="blended_heat_map", sign="absolute_value", 
-                                    outlier_perc=10, show_colorbar=True, 
-                                    title=f"Overlayed {algorithm} explanation for {orientation} orientation")
-            return 
-            
-        if algorithm == 'IntegratedGradients':
-            if algorithm_kwargs is None:
-              algorithm_kwargs = {
-                'nt_type':'smoothgrad_sq',
-                'nt_samples':20, 
-                'stdevs':0.2,
-                'internal_batch_size':10
-              }
-            ig = IntegratedGradients(net)
-            nt = NoiseTunnel(ig)
-            explanation_image = self._attribute_image_features(nt, image,labels=0, baselines=image * 0,**algorithm_kwargs)
-        elif algorithm == 'DeepLift':
-            dl = DeepLift(net)
-            explanation_image = self._attribute_image_features(dl, image,labels=0, baselines=image * 0,**algorithm_kwargs)
+        fig, ax = plt.subplots(1,n_plots)
+        fig.set_size_inches(figsize)
+
+        fig.suptitle(f"Local explanations for sample {sample_id}",y=title_y_position,fontsize=22,horizontalalignment='center')
+
+        fig,ax0 = viz.visualize_image_attr(None, plot_image, method="original_image",
+                                    plt_fig_axis =  (fig, ax[0]),
+                                    show_colorbar=True,
+                                    use_pyplot=False)
+        ax0.set_title("Original Image",fontdict={'size':18})
+
+        fig,ax1 = viz.visualize_image_attr(gradcam_explanation, plot_image, method="blended_heat_map",
+                                    show_colorbar=True,
+                                    plt_fig_axis =  (fig, ax[1]),
+                                    outlier_perc=outlier_scale,
+                                    alpha_overlay=original_image_overlay,
+                                    sign='positive',
+                                    use_pyplot=False)
+        ax1.set_title("Overlayed GradCam",fontdict={'size':18})
+
+        if separate_negative_contributions:
+          fig,ax2 = viz.visualize_image_attr(deeplift_explanation, plot_image, method="blended_heat_map",
+                                      show_colorbar=True,
+                                      plt_fig_axis =  (fig, ax[2]),
+                                      outlier_perc=outlier_scale,
+                                      alpha_overlay=original_image_overlay,
+                                      sign='positive',
+                                      use_pyplot=False)
+          ax2.set_title("Overlayed DeepLift (Positive)",fontdict={'size':18})
+
+          fig,ax3 = viz.visualize_image_attr(deeplift_explanation, plot_image, method="blended_heat_map",
+                                      show_colorbar=True,
+                                      plt_fig_axis =  (fig, ax[3]),
+                                      outlier_perc=outlier_scale,
+                                      alpha_overlay=original_image_overlay,
+                                      sign='negative',
+                                      use_pyplot=False)
+          ax3.set_title("Overlayed DeepLift (Negative)",fontdict={'size':18})
         else:
-            raise("Explanation options available are DeepLift or IntegratedGradients")
-        
-        #TODO: Remove these 90º rotations after fixing input image rotation issue
-        explanation_image = np.transpose(explanation_image.squeeze(0).cpu().detach().numpy(), transpose_array)
-        explanation_image = np.rot90(explanation_image)
+          fig,ax2 = viz.visualize_image_attr(deeplift_explanation, plot_image, method="blended_heat_map",
+                                      show_colorbar=True,
+                                      plt_fig_axis =  (fig, ax[2]),
+                                      outlier_perc=outlier_scale,
+                                      alpha_overlay=original_image_overlay,
+                                      sign='all',
+                                      use_pyplot=False)
+          ax2.set_title("Overlayed DeepLift",fontdict={'size':18})
 
-        _ = viz.visualize_image_attr(explanation_image, original_image, method="blended_heat_map", sign="absolute_value", 
-                                    outlier_perc=10, show_colorbar=True, 
-                                    title=f"Overlayed {algorithm} explanation for {orientation} orientation")
-        
-        self.explanations[orientation + '_' + algorithm] = explanation_image
-        
-    def _attribute_image_features(self,algorithm, input, labels, **kwargs):
-        
-        tensor_attributions = algorithm.attribute(input,
-                                                target=labels,
-                                                **kwargs
-                                                )
-        return tensor_attributions
+        plt.show()
 
-def show_images(dataloader):
 
-    dataiter = iter(dataloader)
-    images, labels = dataiter.next()
-    imshow(torchvision.utils.make_grid(images))
 
-def imshow(img):
-    npimg = img.numpy()
-    plt.imshow(np.transpose(npimg, (1, 2, 0)))
-    plt.show()
+class MRIDiagnosisExplainer(MRIExplainer):
+    '''
+    Explain the MRI diagnosis given by all three CNNs.
+
+    Parameters
+    ----------
+
+    image_id: IMAGE_DATA_ID ou IMAGEUID to be explained.
+
+    prediction_reference: Dataframe reference containing the predictions, true labels and 
+    model location for the classification problem. Can be either a path or dataframe object.
+
+    device: Device to load the model and images. Options are 'cuda' or 'cpu'.
+    '''
+
+    def __init__(self,image_id,prediction_reference='',device=device) -> None:
+        MRIExplainer.__init__(self,image_id,prediction_reference=prediction_reference,device=device)
+    
+    def explain_diagnosis(self,algorithm='DeepLift',figsize=(15,6),original_image_overlay=0.5,outlier_scale=20):
+        
+        fig, ax = plt.subplots(1,3)
+        fig.set_size_inches(figsize)
+        fig.suptitle(f"Local explanations for sample {self.image_id}",y=0.91,fontsize=22,horizontalalignment='center')
+        
+        for ii,orientation in enumerate(['axial','coronal','sagittal']):
+            img_info = self.df_reference.query("ORIENTATION == @orientation").iloc[0]
+            net = self._get_model(orientation, model_name=img_info['MODEL'], model_path=img_info['MODEL_PATH']);
+            image = self._get_image(orientation,image_path = img_info['IMAGE_PATH'])
+
+            if algorithm == 'DeepLift':
+                explanation = self._make_deeplift_explanation(image,net,smoothing_samples=100)
+                sign = 'all'
+            else:
+                explanation = self._make_gradcam_explanation(image,net,smoothing_samples=10)
+                sign = 'positive'
+
+            plot_image = np.transpose(image.squeeze(0).cpu().detach().numpy(), self.transpose_array)
+            plot_image = np.rot90(plot_image)
+
+            fig,ax[ii] = viz.visualize_image_attr(explanation, plot_image, method="blended_heat_map",
+                                        show_colorbar=True,
+                                        plt_fig_axis =  (fig, ax[ii]),
+                                        outlier_perc=outlier_scale,
+                                        alpha_overlay=original_image_overlay,
+                                        sign=sign,
+                                        use_pyplot=False)
+            ax[ii].set_title(f"{orientation.upper()} Slice",fontdict={'size':18})
+
+        plt.show()
