@@ -72,7 +72,7 @@ class MRIExplainer:
         original_image = np.transpose(image.squeeze(0).cpu().detach().numpy(), self.transpose_array)
         original_image = np.rot90(original_image)
 
-        self._show_explanations(original_image,attr_gc,attr_dl,self.image_id,
+        self._show_explanations(original_image,attr_gc,attr_dl,self.image_id,orientation,
                                 figsize=figsize,
                                 original_image_overlay=original_image_overlay,
                                 outlier_scale=outlier_scale,
@@ -122,7 +122,7 @@ class MRIExplainer:
         attr_dl = np.rot90(attr_dl)
         return attr_dl
     
-    def _show_explanations(self,plot_image,gradcam_explanation,deeplift_explanation,sample_id,
+    def _show_explanations(self,plot_image,gradcam_explanation,deeplift_explanation,sample_id,orientation,
                            figsize=(17,8),original_image_overlay=0.5,outlier_scale=20,
                            separate_negative_contributions=True):
         '''
@@ -134,12 +134,11 @@ class MRIExplainer:
         if separate_negative_contributions: 
           n_plots=4
           title_y_position=0.82
-
         
         fig, ax = plt.subplots(1,n_plots)
         fig.set_size_inches(figsize)
 
-        fig.suptitle(f"Local explanations for sample {sample_id}",y=title_y_position,fontsize=22,horizontalalignment='center')
+        fig.suptitle(f"Local {orientation.upper()} explanations for sample {sample_id}",y=title_y_position,fontsize=22,horizontalalignment='center')
 
         fig,ax0 = viz.visualize_image_attr(None, plot_image, method="original_image",
                                     plt_fig_axis =  (fig, ax[0]),
