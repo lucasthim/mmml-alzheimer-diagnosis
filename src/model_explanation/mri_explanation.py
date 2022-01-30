@@ -138,7 +138,7 @@ class MRIExplainer:
         fig, ax = plt.subplots(1,n_plots)
         fig.set_size_inches(figsize)
 
-        fig.suptitle(f"Local {orientation.upper()} explanations for sample {sample_id}",y=title_y_position,fontsize=22,horizontalalignment='center')
+        fig.suptitle(f"Local {orientation.upper()} explanations",y=title_y_position,fontsize=22,horizontalalignment='center')
 
         fig,ax0 = viz.visualize_image_attr(None, plot_image, method="original_image",
                                     plt_fig_axis =  (fig, ax[0]),
@@ -209,7 +209,7 @@ class MRIDiagnosisExplainer(MRIExplainer):
         
         fig, ax = plt.subplots(1,3)
         fig.set_size_inches(figsize)
-        fig.suptitle(f"Local explanations for sample {self.image_id}",y=0.91,fontsize=22,horizontalalignment='center')
+        fig.suptitle(f"Local MRI explanations",y=0.91,fontsize=22,horizontalalignment='center')
         
         for ii,orientation in enumerate(['axial','coronal','sagittal']):
             img_info = self.df_reference.query("ORIENTATION == @orientation").iloc[0]
