@@ -48,17 +48,20 @@ class MRIExplainer:
             df_ref = pd.read_csv(prediction_reference)
         self.df_reference = self._get_image_reference(df_ref,image_id)
 
-    def explain_all_orientations(self,figsize=(15,6),original_image_overlay=0.5,outlier_scale=20,separate_negative_contributions = False):
+    def explain_all_orientations(self,figsize=(15,6),original_image_overlay=0.5,outlier_scale=20,noise_samples=0,std_noise=0.1,separate_negative_contributions = False):
         explain_kwargs={'figsize':figsize,'original_image_overlay':original_image_overlay,
+                        'noise_samples':noise_samples,'std_noise':std_noise,
                         'outlier_scale':outlier_scale,'separate_negative_contributions':separate_negative_contributions}
+
         self.explain_one_orientation(orientation='axial',**explain_kwargs)
         self.explain_one_orientation(orientation='coronal',**explain_kwargs)
         self.explain_one_orientation(orientation='sagittal',**explain_kwargs)
     
-    def explain_one_orientation(self,orientation='coronal',figsize=(15,6),original_image_overlay=0.5,outlier_scale=20,separate_negative_contributions = False):
+    def explain_one_orientation(self,orientation='coronal',noise_samples=0,std_noise=0.1,
+                                figsize=(15,6),original_image_overlay=0.5,outlier_scale=20,separate_negative_contributions = False):
         
         '''
-        Explain one orientation prediction with DeepLift and GradCAM algorithms. Plots 4 figures side by side.
+        Explain one orientation prediction with DeepLift and GradCAM algorithms. Plots 3 or 4 figures side by side.
         
         '''
 
@@ -66,8 +69,8 @@ class MRIExplainer:
         net = self._get_model(orientation, model_name=img_info['MODEL'], model_path=img_info['MODEL_PATH']);
         image = self._get_image(orientation,image_path = img_info['IMAGE_PATH'])
 
-        attr_dl = self._make_deeplift_explanation(image,net,smoothing_samples=100)
-        attr_gc = self._make_gradcam_explanation(image,net,smoothing_samples=20)
+        attr_dl = self._make_deeplift_explanation(image,net,smoothing_samples=noise_samples,std=std_noise)
+        attr_gc = self._make_gradcam_explanation(image,net,smoothing_samples=noise_samples,std=std_noise)
 
         original_image = np.transpose(image.squeeze(0).cpu().detach().numpy(), self.transpose_array)
         original_image = np.rot90(original_image)
@@ -102,22 +105,28 @@ class MRIExplainer:
             self.models[orientation].zero_grad();
         return self.models[orientation]
     
-    def _make_gradcam_explanation(self,image,net,smoothing_samples=10):
+    def _make_gradcam_explanation(self,image,net,smoothing_samples=10,std=0.1):
         gc = GuidedGradCam(net,layer=net.features[-1])
-        nt = NoiseTunnel(gc)
-
-        attr_gc = nt.attribute(image,  nt_type='smoothgrad',
-                                            nt_samples=smoothing_samples, stdevs=0.1)
-
+        
+        if smoothing_samples > 0:
+            nt = NoiseTunnel(gc)
+            
+            attr_gc = nt.attribute(image,nt_type='smoothgrad',nt_samples=smoothing_samples, stdevs=std)
+        else:
+            attr_gc = gc.attribute(image)
         attr_gc = np.transpose(attr_gc.squeeze(0).cpu().detach().numpy(), self.transpose_array)
         attr_gc = np.rot90(attr_gc)
         return attr_gc
 
-    def _make_deeplift_explanation(self,image,net,smoothing_samples=100):
+    def _make_deeplift_explanation(self,image,net,smoothing_samples=100,std=0.2):
         dl = DeepLift(net)
-        nt = NoiseTunnel(dl)
-        attr_dl = nt.attribute(image, baselines=image * 0,  nt_type='smoothgrad',
-                                            nt_samples=smoothing_samples, stdevs=0.2)
+
+        if smoothing_samples > 0:
+            nt = NoiseTunnel(dl)
+            attr_dl = nt.attribute(image, baselines=image * 0,  nt_type='smoothgrad',nt_samples=smoothing_samples, stdevs=std)
+        else:
+            attr_dl = dl.attribute(image)
+        
         attr_dl = np.transpose(attr_dl.squeeze(0).cpu().detach().numpy(), self.transpose_array)
         attr_dl = np.rot90(attr_dl)
         return attr_dl
@@ -146,7 +155,11 @@ class MRIExplainer:
                                     use_pyplot=False)
         ax0.set_title("Original Image",fontdict={'size':18})
 
-        fig,ax1 = viz.visualize_image_attr(gradcam_explanation, plot_image, method="blended_heat_map",
+        gradcam_method="blended_heat_map"
+        if gradcam_explanation.max() == 0: 
+            gradcam_explanation = None
+            gradcam_method = 'original_image'
+        fig,ax1 = viz.visualize_image_attr(gradcam_explanation, plot_image, method=gradcam_method,
                                     show_colorbar=True,
                                     plt_fig_axis =  (fig, ax[1]),
                                     outlier_perc=outlier_scale,
