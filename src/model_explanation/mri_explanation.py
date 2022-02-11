@@ -5,9 +5,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import torch
+import torchvision
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision
+from torchvision.transforms import GaussianBlur
 
 from captum.attr import DeepLift
 from captum.attr import NoiseTunnel
@@ -16,6 +17,7 @@ from captum.attr import visualization as viz
 
 sys.path.append("./../models")
 from neural_network import load_model,load_trained_model,device
+
 
 class MRIExplainer:
     
@@ -33,59 +35,62 @@ class MRIExplainer:
     device: Device to load the model and images. Options are 'cuda' or 'cpu'.
     '''
 
-    def __init__(self,image_id,prediction_reference='',device=device):
+    def __init__(self,image_id,prediction_reference,device=device):
         self.image_id = image_id
         self.device = device
-        
+        self.prediction_reference = prediction_reference
+
         self.images = {}
         self.models = {}
         self.explanations = {}
         self.orientations = []
         self.transpose_array = (2,1,0)
 
-        df_ref = prediction_reference
-        if isinstance(prediction_reference,str):
-            df_ref = pd.read_csv(prediction_reference)
-        self.df_reference = self._get_image_reference(df_ref,image_id)
 
-    def explain_all_orientations(self,figsize=(15,6),original_image_overlay=0.5,outlier_scale=20,noise_samples=0,std_noise=0.1,separate_negative_contributions = False):
+    def explain_all_orientations(self,figsize=(15,6),original_image_overlay=0.7,outlier_scale=10,separate_negative_contributions = False):
         explain_kwargs={'figsize':figsize,'original_image_overlay':original_image_overlay,
-                        'noise_samples':noise_samples,'std_noise':std_noise,
                         'outlier_scale':outlier_scale,'separate_negative_contributions':separate_negative_contributions}
-
-        self.explain_one_orientation(orientation='axial',**explain_kwargs)
-        self.explain_one_orientation(orientation='coronal',**explain_kwargs)
         self.explain_one_orientation(orientation='sagittal',**explain_kwargs)
-    
-    def explain_one_orientation(self,orientation='coronal',noise_samples=0,std_noise=0.1,
-                                figsize=(15,6),original_image_overlay=0.5,outlier_scale=20,separate_negative_contributions = False):
+        self.explain_one_orientation(orientation='coronal',**explain_kwargs)
+        self.explain_one_orientation(orientation='axial',**explain_kwargs)
+
+
+    def explain_one_orientation(self,orientation='coronal',figsize=(15,6),original_image_overlay=0.7,outlier_scale=10,separate_negative_contributions = False):
         
         '''
         Explain one orientation prediction with DeepLift and GradCAM algorithms. Plots 3 or 4 figures side by side.
         
         '''
 
-        img_info = self.df_reference.query("ORIENTATION == @orientation").iloc[0]
-        net = self._get_model(orientation, model_name=img_info['MODEL'], model_path=img_info['MODEL_PATH']);
-        image = self._get_image(orientation,image_path = img_info['IMAGE_PATH'])
+        img_orientation = self.image_reference.query("ORIENTATION == @orientation").iloc[0]
+        net = self._get_model(orientation, model_name=img_orientation['MODEL'], model_path=img_orientation['MODEL_PATH']);
+        image = self._get_image(orientation,image_path = img_orientation['IMAGE_PATH'])
 
-        attr_dl = self._make_deeplift_explanation(image,net,smoothing_samples=noise_samples,std=std_noise)
-        attr_gc = self._make_gradcam_explanation(image,net,smoothing_samples=noise_samples,std=std_noise)
+        attr_dl = self._make_deeplift_explanation(image,net)
+        attr_gc = self._make_gradcam_explanation(image,net)
 
         original_image = np.transpose(image.squeeze(0).cpu().detach().numpy(), self.transpose_array)
         original_image = np.rot90(original_image)
 
-        self._show_explanations(original_image,attr_gc,attr_dl,self.image_id,orientation,
+        orientation_label = orientation +'_' +str(img_orientation['SLICE'])
+        
+        self._show_explanations(original_image,attr_gc,attr_dl,self.image_id,orientation_label,
+                                true_label = img_orientation['MACRO_GROUP'],
+                                score=img_orientation['CNN_SCORE'],
+                                prediction=img_orientation['CNN_PREDICTION'],
                                 figsize=figsize,
                                 original_image_overlay=original_image_overlay,
                                 outlier_scale=outlier_scale,
                                 separate_negative_contributions = separate_negative_contributions)
-
-
-    def _get_image_reference(self,df,image_id):
-        df = df.query("IMAGE_DATA_ID == @image_id")
-        df.columns = df.columns.str.upper()
-        return df
+    
+    @property
+    def image_reference(self):
+        df_ref = self.prediction_reference
+        if isinstance(self.prediction_reference,str):
+            df_ref = pd.read_csv(self.prediction_reference)
+        df_ref = df_ref.loc[df_ref['IMAGE_DATA_ID'] == self.image_id,:]
+        df_ref.columns = df_ref.columns.str.upper()
+        return df_ref
 
     def _get_image(self,orientation,image_path):
         if self.images.get(orientation) is None:
@@ -95,9 +100,7 @@ class MRIExplainer:
             X = X.view(-1,1, 100,100) #Transforms 100x100 in 1x100x100. Image with one channel.
             X.requires_grad = True
             X = X.to(self.device)
-            self.images[orientation] = X
-            del [X]
-        return self.images[orientation]
+        return X
     
     def _get_model(self,orientation,model_name,model_path):
         if self.models.get(orientation) is None:
@@ -105,34 +108,28 @@ class MRIExplainer:
             self.models[orientation].zero_grad();
         return self.models[orientation]
     
-    def _make_gradcam_explanation(self,image,net,smoothing_samples=10,std=0.1):
+    def _make_gradcam_explanation(self,image,net):
         gc = GuidedGradCam(net,layer=net.features[-1])
-        
-        if smoothing_samples > 0:
-            nt = NoiseTunnel(gc)
-            
-            attr_gc = nt.attribute(image,nt_type='smoothgrad',nt_samples=smoothing_samples, stdevs=std)
-        else:
-            attr_gc = gc.attribute(image)
+        attr_gc = gc.attribute(image,interpolate_mode='area')
         attr_gc = np.transpose(attr_gc.squeeze(0).cpu().detach().numpy(), self.transpose_array)
         attr_gc = np.rot90(attr_gc)
         return attr_gc
 
-    def _make_deeplift_explanation(self,image,net,smoothing_samples=100,std=0.2):
+    def _make_deeplift_explanation(self,image,net,smoothing_samples=100):
         dl = DeepLift(net)
+        nt = NoiseTunnel(dl)
 
-        if smoothing_samples > 0:
-            nt = NoiseTunnel(dl)
-            attr_dl = nt.attribute(image, baselines=image * 0,  nt_type='smoothgrad',nt_samples=smoothing_samples, stdevs=std)
-        else:
-            attr_dl = dl.attribute(image)
-        
+        blur = GaussianBlur((5,5), sigma=1)
+        ref_image = blur(image.detach().clone().to(self.device))
+
+        attr_dl = nt.attribute(image, baselines=ref_image,  nt_type='smoothgrad',
+                                            nt_samples=smoothing_samples, stdevs=0.1)
         attr_dl = np.transpose(attr_dl.squeeze(0).cpu().detach().numpy(), self.transpose_array)
         attr_dl = np.rot90(attr_dl)
         return attr_dl
     
     def _show_explanations(self,plot_image,gradcam_explanation,deeplift_explanation,sample_id,orientation,
-                           figsize=(17,8),original_image_overlay=0.5,outlier_scale=20,
+                           true_label,score,prediction,figsize=(17,8),original_image_overlay=0.7,outlier_scale=10,
                            separate_negative_contributions=True):
         '''
         Shows overlayed local explanations side by side with the original image.
@@ -147,13 +144,14 @@ class MRIExplainer:
         fig, ax = plt.subplots(1,n_plots)
         fig.set_size_inches(figsize)
 
-        fig.suptitle(f"Local {orientation.upper()} explanations",y=title_y_position,fontsize=22,horizontalalignment='center')
+        fig.suptitle(f"Local {orientation.upper()} explanations - True label: {true_label} - Predicted label: {prediction} - Predicted score: {score:.4f}",y=title_y_position,fontsize=18,horizontalalignment='center')
 
         fig,ax0 = viz.visualize_image_attr(None, plot_image, method="original_image",
                                     plt_fig_axis =  (fig, ax[0]),
                                     show_colorbar=True,
                                     use_pyplot=False)
         ax0.set_title("Original Image",fontdict={'size':18})
+
 
         gradcam_method="blended_heat_map"
         if gradcam_explanation.max() == 0: 
@@ -166,7 +164,7 @@ class MRIExplainer:
                                     alpha_overlay=original_image_overlay,
                                     sign='positive',
                                     use_pyplot=False)
-        ax1.set_title("Overlayed GradCam",fontdict={'size':18})
+        ax1.set_title("Overlayed Guided GradCam",fontdict={'size':18})
 
         if separate_negative_contributions:
           fig,ax2 = viz.visualize_image_attr(deeplift_explanation, plot_image, method="blended_heat_map",
@@ -198,7 +196,13 @@ class MRIExplainer:
 
         plt.show()
 
-
+    def _get_score_and_prediction(self,net,image,threshold):
+        y_pred_proba = torch.sigmoid(net(image)).cpu().detach().numpy()
+        y_pred_label = y_pred_proba.copy()
+        y_pred_label[y_pred_proba >= threshold] = 1
+        y_pred_label[y_pred_proba < threshold] = 0
+        
+        return y_pred_proba[0], y_pred_label[0]
 
 class MRIDiagnosisExplainer(MRIExplainer):
     '''
@@ -218,28 +222,33 @@ class MRIDiagnosisExplainer(MRIExplainer):
     def __init__(self,image_id,prediction_reference='',device=device) -> None:
         MRIExplainer.__init__(self,image_id,prediction_reference=prediction_reference,device=device)
     
-    def explain_diagnosis(self,algorithm='DeepLift',figsize=(15,6),original_image_overlay=0.5,outlier_scale=20):
+    def explain_diagnosis(self,algorithm='DeepLift',figsize=(15,6),original_image_overlay=0.7,outlier_scale=10):
         
         fig, ax = plt.subplots(1,3)
         fig.set_size_inches(figsize)
-        fig.suptitle(f"Local MRI explanations",y=0.91,fontsize=22,horizontalalignment='center')
+        fig.suptitle(f"MRI explanations",y=0.91,fontsize=22,horizontalalignment='center')
         
-        for ii,orientation in enumerate(['axial','coronal','sagittal']):
-            img_info = self.df_reference.query("ORIENTATION == @orientation").iloc[0]
+        for ii,orientation in enumerate(['sagittal','axial','coronal']):
+            img_info = self.image_reference.query("ORIENTATION == @orientation").iloc[0]
             net = self._get_model(orientation, model_name=img_info['MODEL'], model_path=img_info['MODEL_PATH']);
             image = self._get_image(orientation,image_path = img_info['IMAGE_PATH'])
-
+            
+            method="blended_heat_map"
             if algorithm == 'DeepLift':
-                explanation = self._make_deeplift_explanation(image,net,smoothing_samples=100)
+              
+                explanation = self._make_deeplift_explanation(image,net,smoothing_samples=20)
                 sign = 'all'
             else:
-                explanation = self._make_gradcam_explanation(image,net,smoothing_samples=10)
+                explanation = self._make_gradcam_explanation(image,net)
                 sign = 'positive'
+                if explanation.max() == 0: 
+                    explanation = None
+                    method = 'original_image'
 
             plot_image = np.transpose(image.squeeze(0).cpu().detach().numpy(), self.transpose_array)
             plot_image = np.rot90(plot_image)
 
-            fig,ax[ii] = viz.visualize_image_attr(explanation, plot_image, method="blended_heat_map",
+            fig,ax[ii] = viz.visualize_image_attr(explanation, plot_image, method=method,
                                         show_colorbar=True,
                                         plt_fig_axis =  (fig, ax[ii]),
                                         outlier_perc=outlier_scale,
