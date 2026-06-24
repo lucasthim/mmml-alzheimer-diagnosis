@@ -24,6 +24,7 @@ are explained at the **patient level** (local) and the **population level** (glo
 |---|---|
 | Understand the whole system in 5 minutes | [System Architecture](architecture/system-architecture.md) |
 | **Re-download the ADNI data (images + tables)** | [Data Acquisition](data/data-acquisition.md) |
+| **Rebuild `ADNIMERGE.csv`** (ADNI now ships the ADNIMERGE2 R package) | [ADNIMERGE2 Rebuild](data/adnimerge2.md) |
 | **Run an experiment end-to-end** | [Running Experiments](experiments/running-experiments.md) |
 | Find a file or module | [Repository Map](architecture/repository-map.md) |
 | Know what a column / label means | [Data Semantics](data/data-semantics.md) |
@@ -82,6 +83,7 @@ section. Five themed areas plus a reference section:
 ### Data
 - [Data Overview](data/data-overview.md) — the ADNI sources, the table lineage, how imaging and tabular data join. *(hub for the data docs)*
 - [Data Acquisition](data/data-acquisition.md) — **re-download guide**: what to fetch from LONI/IDA and where to put it.
+- [ADNIMERGE2 Rebuild](data/adnimerge2.md) — rebuild `ADNIMERGE.csv` from the ADNIMERGE2 R package (ADNI's new tabular format; covers reading `.rda`, the column map, ADASQ4, IMAGEUID).
 - [Data Structure](data/data-structure.md) — on-disk layout, file catalogue, naming conventions, formats.
 - [Data Semantics](data/data-semantics.md) — the data dictionary: columns, the diagnostic label scheme, the ID system.
 - [MRI Preprocessing](data/mri-preprocessing.md) — the 3D pipeline: registration, skull-stripping, cropping, standardization.

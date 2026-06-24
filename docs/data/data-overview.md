@@ -4,7 +4,7 @@
 
 Everything in this project is built from **one external source: ADNI** ([adni.loni.usc.edu](https://adni.loni.usc.edu)). There is no synthetic data and no second provider. From ADNI the pipeline pulls **two families** of data and fuses them:
 
-1. **Tabular** — cognitive-test scores + demographics, exported as the ADNI master spreadsheet [`ADNIMERGE.csv`](data-structure.md). One row per subject-visit, ~115 columns; the repo touches only ~34 of them.
+1. **Tabular** — cognitive-test scores + demographics, exported as the ADNI master spreadsheet [`ADNIMERGE.csv`](data-structure.md). One row per subject-visit, ~115 columns; the repo touches only ~34 of them. **As of 2026 ADNI no longer distributes this flat file** — it must be rebuilt from the ADNIMERGE2 R package; see [adnimerge2.md](adnimerge2.md).
 2. **Imaging** — 3D T1-weighted MP-RAGE structural MRI volumes (`.nii` downloads), one per qualifying visit.
 
 The two families are joined on ADNI's image and subject identifiers, cleaned into a chain of reference CSVs, and the result drives the MRI CNNs, the cognitive model, and the EBM ensemble that combines them.
@@ -15,6 +15,7 @@ The two families are joined on ADNI's image and subject identifiers, cleaned int
 
 | You want to… | Go to |
 |---|---|
+| **Rebuild `ADNIMERGE.csv`** — ADNI now ships tabular data as the ADNIMERGE2 R package | [adnimerge2.md](adnimerge2.md) |
 | **Re-download** ADNI tables, MRI, and the atlas after time away | [data-acquisition.md](data-acquisition.md) |
 | Know the **on-disk layout**, folder tree, and file catalogue | [data-structure.md](data-structure.md) |
 | Look up what a **column means** or how labels are encoded | [data-semantics.md](data-semantics.md) |
@@ -121,6 +122,7 @@ Both sides collapse the raw ADNI vocabulary into the same three-class taxonomy a
 
 ## See also
 
+- [adnimerge2.md](adnimerge2.md) — rebuild `ADNIMERGE.csv` from the ADNIMERGE2 R package
 - [data-acquisition.md](data-acquisition.md) — re-download ADNI tables, MRI, and the atlas
 - [data-structure.md](data-structure.md) — on-disk layout, full file catalogue, naming conventions
 - [data-semantics.md](data-semantics.md) — data dictionary, column meanings, label scheme, ID system

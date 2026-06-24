@@ -10,6 +10,8 @@ A few conventions to keep in mind:
 - Anything not directly present in the source code is flagged **(inferred)**.
 - The `data/` directory is gitignored and empty, so no real CSV was inspected. All schemas are reconstructed from the code that reads and writes them.
 
+> **Where these columns come from now (2026):** ADNI no longer distributes the flat `ADNIMERGE.csv`. It is rebuilt from the **ADNIMERGE2 R package**, which splits the data into per-instrument tables (`PTDEMOG`, `DXSUM`, `ADAS`, `MMSE`, `NEUROBAT`, …). The column meanings below are unchanged, but the *source table* for each is mapped in [adnimerge2.md §4](adnimerge2.md#4-column-map-where-each-pipeline-column-now-comes-from).
+
 > Bugs and inconsistencies called out below (the `COGNITIVE_DATA_PROCESSED.csv` naming bug, the uncommitted `COGTEST_SCORE` rename, APOE4 being unused) are catalogued in full in [known-issues.md](../reference/known-issues.md).
 
 ## The three tables and how columns flow

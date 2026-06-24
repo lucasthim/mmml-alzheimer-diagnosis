@@ -27,6 +27,7 @@ Route to the right page instead of re-deriving from source:
 - **Big picture:** [docs/architecture/system-architecture.md](docs/architecture/system-architecture.md)
 - **Find a file/module:** [docs/architecture/repository-map.md](docs/architecture/repository-map.md)
 - **Data — re-download:** [docs/data/data-acquisition.md](docs/data/data-acquisition.md)
+- **Data — rebuild `ADNIMERGE.csv` (ADNIMERGE2 R package):** [docs/data/adnimerge2.md](docs/data/adnimerge2.md)
 - **Data — on-disk layout & files:** [docs/data/data-structure.md](docs/data/data-structure.md)
 - **Data — column/label meanings:** [docs/data/data-semantics.md](docs/data/data-semantics.md)
 - **Data — MRI 3D pipeline:** [docs/data/mri-preprocessing.md](docs/data/mri-preprocessing.md)
@@ -53,6 +54,7 @@ Route to the right page instead of re-deriving from source:
   - `utils/` — shared MRI/IO helpers.
   - `run/`, `experiment/` — **intended orchestration layer, but stubbed/empty.** Experiments run from notebooks, not these.
 - [notebooks/](notebooks/) — ~50 notebooks: `early_mri_exploration/` (R&D), `mri_preprocessing/` (productionized), `final_studies/` (thesis results), and dated experiment-run notebooks. See [notebooks guide](docs/experiments/notebooks-guide.md).
+- [scripts/](scripts/) — standalone data tools, e.g. [rebuild_adnimerge_from_adnimerge2.py](scripts/rebuild_adnimerge_from_adnimerge2.py) (rebuild `ADNIMERGE.csv` from the ADNIMERGE2 R package).
 - `data/`, `models/`, `reports/` — **gitignored and empty.** Data lives outside the repo.
 - [docs/](docs/) — this documentation.
 
@@ -67,6 +69,7 @@ Route to the right page instead of re-deriving from source:
   `scipy`, `nibabel`, `tensorflow`, `captum`, `interpret`, `pycaret`; lists the deprecated
   `sklearn`). Full list of pitfalls: [Known Issues](docs/reference/known-issues.md).
 - **The code targets Python + PyTorch + ANTsPy + DeepBrain (TensorFlow) + PyCaret + interpret(EBM) + Captum.**
+- **`ADNIMERGE.csv` no longer exists upstream (2026).** ADNI ships the **ADNIMERGE2 R package** (~200 `.rda` tables); the flat `adnimerge` table was discontinued. Rebuild the CSV the pipeline needs with [scripts/rebuild_adnimerge_from_adnimerge2.py](scripts/rebuild_adnimerge_from_adnimerge2.py) — full workflow in [docs/data/adnimerge2.md](docs/data/adnimerge2.md).
 - **Key data contract:** the pipeline is glued by reference CSVs (`*_REFERENCE.csv`), 2D slice
   `.npz` files (array under key `arr_0`, 100×100), and a `CNN_SCORE` column that flows into the
   ensemble feature table. See [Data Structure](docs/data/data-structure.md) and [Data Semantics](docs/data/data-semantics.md).

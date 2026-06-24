@@ -53,11 +53,19 @@ The dotted truth: steps 3a, 4, 5b, 6, 7, 11 are all driven by importing function
 - Place the registration atlas at `data/mri/atlas/atlas_t1.nii` (`ATLAS_PATH`, [antspy_registration.py:6](../../src/data_preprocessing/antspy_registration.py#L6)). It is **not an ADNI download** and not in the repo; source a T1 template (inferred: MNI/ICBM152 T1). If you use a different atlas, the precomputed standardization percentiles `(0.05545412003993988, 92.05744171142578)` baked in at [mri_standardize.py:69](../../src/data_preprocessing/mri_standardize.py#L69) are wrong — recompute them with `get_atlas_thresholds(atlas_path=...)`.
 - **Pick one path root and commit to it.** The code interleaves two roots: most modules read `/content/gdrive/MyDrive/Lucas_Thimoteo/data/...`, but MRI preprocessing writes to a nested `.../mmml-alzheimer-diagnosis/data/...` ([mri_preprocessing.py:140-142](../../src/data_preprocessing/mri_preprocessing.py#L140), [extract_zip.sh:1](../../src/utils/extract_zip.sh#L1)). Put all data under one root and fix the preprocessing `__main__` paths to match before running.
 
-## Step 1 — Download `ADNIMERGE.csv`
+## Step 1 — Get `ADNIMERGE.csv` (now: rebuild from ADNIMERGE2)
 
-- **Source:** IDA portal → Study Data → ADNIMERGE.
-- **Output:** `data/tabular/ADNIMERGE.csv`.
-- This single merged table drives the entire tabular track *and* the MRI-selection logic. **TADPOLE is not needed** — no code reads it. Detail in [data-acquisition.md](../data/data-acquisition.md) and [data-semantics.md](../data/data-semantics.md). (README step 1.)
+**Source (2026):** ADNI no longer distributes the flat `ADNIMERGE.csv`. Download the **ADNIMERGE2 R package** from the IDA portal → Study Data, unpack to `data/ADNIMERGE2/`, then rebuild:
+
+```bash
+pip install --user rdata pandas
+python3 scripts/rebuild_adnimerge_from_adnimerge2.py \
+    --pkg data/ADNIMERGE2 --out data/tabular/ADNIMERGE.csv \
+    --imageuid-map data/reference/IMAGEUID_FROM_UCSF.csv --selfcheck
+```
+
+- **Output:** `data/tabular/ADNIMERGE.csv` (15,836 × 44, drop-in for Step 2).
+- This merged table drives the entire tabular track *and* the MRI-selection logic. **TADPOLE is not needed** — no code reads it. Full rebuild workflow (column map, ADASQ4, IMAGEUID, phase coverage incl. ADNI4) in [adnimerge2.md](../data/adnimerge2.md); column meanings in [data-semantics.md](../data/data-semantics.md). (README step 1.)
 
 ## Step 2 — Cognitive / tabular preprocessing
 
@@ -218,7 +226,7 @@ The repo `README.md` "Steps to Run Experiments" list is stale. The discrepancies
 ## Condensed checklist
 
 1. ADNI/LONI access + DUA. Build env. Drop in `atlas_t1.nii`. ([Step 0](#step-0--access-environment-atlas))
-2. Download `ADNIMERGE.csv` → `data/tabular/`. ([Step 1](#step-1--download-adnimergecsv))
+2. Rebuild `ADNIMERGE.csv` from ADNIMERGE2 → `data/tabular/`. ([Step 1](#step-1--get-adnimergecsv-now-rebuild-from-adnimerge2))
 3. `cognitive_tests_preprocessing.py` → `COGNITIVE_DATA_PREPROCESSED.csv`. ([Step 2](#step-2--cognitive--tabular-preprocessing))
 4. `mri_selection.select_mris_to_download(...)` → `SELECTED_IMAGES_REFERENCE.csv`. ([Step 3a](#step-3a--mri-selection-produce-the-download-list))
 5. ADNI Advanced Image Search → download NIfTI + export metadata CSVs; unzip. ([Steps 3b–3c](#step-3b--download-mris--their-metadata-exports))

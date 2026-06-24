@@ -10,15 +10,16 @@ The honest framing: there is **no committed data, no committed model weights, no
 
 ## 0. Read this first
 
-The five hazards most likely to stop a fresh run cold, in priority order:
+The six hazards most likely to stop a fresh run cold, in priority order:
 
 | # | Hazard | One-line fix | Detail |
 |---|---|---|---|
-| 1 | `np.float` removed in NumPy ≥ 1.24 → DeLong test crashes | Replace `np.float` with `np.float64`/`float` | [§5](#5-python--library-rot-wont-run-on-modern-stacks) |
-| 2 | `requirements.txt` installs almost nothing the code needs (8 packages missing; lists deprecated `sklearn`) | Install the true set (below) | [§5](#5-python--library-rot-wont-run-on-modern-stacks) |
-| 3 | Two incompatible hardcoded path roots; no central config | Pick one root, edit each module's `__main__` | [§4](#4-paths-config--environment) |
-| 4 | `WeightedFocalLoss` hardcodes `.cuda()` → crashes on CPU/MPS | Use the module `device` | [§3](#3-model-training-bugs) |
-| 5 | CNN default params omit `'loss'` → `KeyError` | Always pass an explicit param dict with `'loss'` | [§3](#3-model-training-bugs) |
+| 1 | `ADNIMERGE.csv` no longer exists — ADNI ships the **ADNIMERGE2 R package** and discontinued the flat `adnimerge` table | Rebuild it with [scripts/rebuild_adnimerge_from_adnimerge2.py](../../scripts/rebuild_adnimerge_from_adnimerge2.py) | [adnimerge2.md](../data/adnimerge2.md) |
+| 2 | `np.float` removed in NumPy ≥ 1.24 → DeLong test crashes | Replace `np.float` with `np.float64`/`float` | [§5](#5-python--library-rot-wont-run-on-modern-stacks) |
+| 3 | `requirements.txt` installs almost nothing the code needs (8 packages missing; lists deprecated `sklearn`) | Install the true set (below) | [§5](#5-python--library-rot-wont-run-on-modern-stacks) |
+| 4 | Two incompatible hardcoded path roots; no central config | Pick one root, edit each module's `__main__` | [§4](#4-paths-config--environment) |
+| 5 | `WeightedFocalLoss` hardcodes `.cuda()` → crashes on CPU/MPS | Use the module `device` | [§3](#3-model-training-bugs) |
+| 6 | CNN default params omit `'loss'` → `KeyError` | Always pass an explicit param dict with `'loss'` | [§3](#3-model-training-bugs) |
 
 For the full re-run procedure that works around all of these, see [running-experiments.md](../experiments/running-experiments.md) and the acquisition runbook in [data-acquisition.md](../data/data-acquisition.md).
 

@@ -118,7 +118,7 @@ Dataset class is `MRIDataset` (offline, reads `.npz`).
 - Else → `BCEWithLogitsLoss(pos_weight=ones([1]) * (neg_class/pos_class), reduction='mean')`.
 - `criterion.to(device)`.
 
-The focal-loss formula, defaults (`alpha=0.25`, `gamma=2`), and its hardcoded `.cuda()` portability bug are documented in [models.md](models.md#focal-loss).
+The focal-loss formula, defaults (`alpha=0.25`, `gamma=2`), and its hardcoded `.cuda()` portability bug are documented in [models.md](models.md#focal-loss-weightedfocalloss).
 
 ### 1.4 `return_sets` — split semantics and the validation/test filter
 
@@ -170,7 +170,7 @@ This proves the reference CSV carries: **`MACRO_GROUP`**, **`DATASET`** (values 
 
 #### `train_one_epoch` / `evaluate_one_epoch` ([#L443](../../src/model_training/mri_train.py#L443)–510)
 
-- Both reshape `X = X.view(-1, 1, 100, 100)`, `y = y.view(-1, 1)`, cast `y = y.type_as(y_pred)`. The hardcoded **100×100 single-channel** input shape is the same magic number repeated across every loop (see [models.md](models.md#input-shape-contract)).
+- Both reshape `X = X.view(-1, 1, 100, 100)`, `y = y.view(-1, 1)`, cast `y = y.type_as(y_pred)`. The hardcoded **100×100 single-channel** input shape is the same magic number repeated across every loop (see [models.md](models.md#the-input-shape-contract-1100100)).
 - `train_one_epoch`: standard `zero_grad -> forward -> loss -> backward -> step`; accumulates `running_loss`, returns `running_loss / len(dataset)` (divides by **sample count**, not #batches, so reported loss is per-sample and tiny).
 - `evaluate_one_epoch`: no-grad, `predicted_probas = torch.sigmoid(logits)`, then `compute_metrics_binary(y_true, y_pred_proba=probas, threshold=0.5)`. Returns `(metrics, running_loss, predicted_probas)`.
 

@@ -4,6 +4,8 @@
 
 This is the doc to start from after time away. **Nothing under `data/` or `models/` is committed** — both are gitignored and empty in the repo, so every input must be re-obtained from ADNI/LONI (or, for the atlas, sourced separately) before any pipeline step can run. This guide covers only acquisition: what to download, from where, and to which exact path. Once the files below are in place, hand off to [running-experiments.md](../experiments/running-experiments.md).
 
+> **⚠️ Update (2026): `ADNIMERGE.csv` is no longer distributed as a flat file.** ADNI now ships the tabular data as the **ADNIMERGE2 R data package** (~200 normalized per-instrument `.rda` tables); the merged `adnimerge` table was explicitly discontinued. You **rebuild** `data/tabular/ADNIMERGE.csv` from it with [scripts/rebuild_adnimerge_from_adnimerge2.py](../../scripts/rebuild_adnimerge_from_adnimerge2.py) — full workflow in **[adnimerge2.md](adnimerge2.md)**. Everything about the **MRI images and the atlas** below is unchanged and still applies. Where this guide says "download `ADNIMERGE.csv`", read it as "download the ADNIMERGE2 package, then rebuild".
+
 ## The short version
 
 You need **one pre-named file from ADNI**, plus material you assemble yourself, plus one non-ADNI file:
@@ -131,6 +133,7 @@ After step 5 you have every input on disk. Everything downstream (metadata conca
 
 ## See also
 
+- [adnimerge2.md](adnimerge2.md) — **rebuild `ADNIMERGE.csv` from the ADNIMERGE2 R package** (the tabular data's new form)
 - [running-experiments.md](../experiments/running-experiments.md) — the next step: run the pipeline once the data is on disk.
 - [data-structure.md](data-structure.md) — the on-disk `data/` tree and file catalogue these downloads fill.
 - [data-semantics.md](data-semantics.md) — the data dictionary: columns, `IMAGEUID`, the CN/AD/MCI label scheme.

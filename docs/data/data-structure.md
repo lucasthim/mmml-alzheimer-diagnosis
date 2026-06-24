@@ -47,13 +47,15 @@ Base = `/content/gdrive/MyDrive/Lucas_Thimoteo/data/`. Subfolders are inferred f
 ```
 data/
 ├── tabular/                         # cognitive-test tables & ensemble references
-│   ├── ADNIMERGE.csv                # RAW ADNI download (INPUT) — cognitive_tests_preprocessing.py:23
+│   ├── ADNIMERGE.csv                # pipeline INPUT — now REBUILT from ADNIMERGE2 (see adnimerge2.md); read at cognitive_tests_preprocessing.py:23
 │   ├── COGNITIVE_DATA_PREPROCESSED.csv      # cognitive_tests_preprocessing.py:57
 │   ├── SELECTED_IMAGES_REFERENCE.csv        # mri_selection.py:31 (filename via .replace of COGNITIVE_DATA_PREPROCESSED)
 │   ├── PREPROCESSED_ENSEMBLE_REFERENCE.csv  # ensemble_preprocessing.py:42,69
 │   ├── PREPROCESSED_ENSEMBLE_REFERENCE_ALL.csv   # notebook variant (final_studies)
 │   ├── PROCESSED_ENSEMBLE_REFERENCE.csv     # ensemble_preparation.py (adds DATASET split)
 │   └── PROCESSED_ENSEMBLE_REFERENCE_ALL.csv      # notebook variant
+│
+├── ADNIMERGE2/                      # ADNI R data package (~200 .rda tables) — rebuild source for ADNIMERGE.csv (see adnimerge2.md)
 │
 ├── reference/                       # MRI metadata reference tables
 │   ├── MPRAGE_REFERENCE.csv         # RAW ADNI metadata download (INPUT) — mri_metadata_preprocessing.py:21
@@ -63,6 +65,7 @@ data/
 │   ├── REFERENCE_MRI_ENSEMBLE_03.csv        # :25
 │   ├── RAW_MRI_REFERENCE.csv        # concat of the 5 above — mri_metadata_preprocessing.py:27,33
 │   ├── PREPROCESSED_MRI_REFERENCE.csv       # concat of per-folder REFERENCE.csv — :39,45
+│   ├── IMAGEUID_FROM_UCSF.csv       # RID,VISCODE,IMAGEUID map for the ADNIMERGE2 rebuild (see adnimerge2.md)
 │   ├── PROCESSED_MRI_REFERENCE_<timestamp>.csv          # mri_batch_preparation.py:96,101
 │   ├── PROCESSED_MRI_REFERENCE_ALL_ORIENTATIONS_*.csv   # master 2D-slice ref used in training
 │   ├── PROCESSED_MRI_REFERENCE_<orient>_<slice>_samples_around_slice_<n>_num_rotations_<r>_<ts>.csv

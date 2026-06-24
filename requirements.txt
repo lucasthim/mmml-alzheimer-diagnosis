@@ -1,6 +1,22 @@
+# Core
 numpy
 pandas
 matplotlib
-sklearn
+scipy
+scikit-learn
+rdata
+
+# Deep learning (MRI CNN)
 torch
+torchvision
+captum
+
+# MRI / neuroimaging preprocessing
 antspyx
+nibabel
+deepbrain        # requires TensorFlow
+tensorflow
+
+# Tabular modeling + ensemble explainability
+pycaret==3.3.2   # 3.3.2 pins sklearn<1.5 (needs _print_elapsed_time); 2.x/3.3.0 break on modern sklearn
+interpret        # Explainable Boosting Machine (EBM); resolves to 0.7.3 under sklearn 1.4.2
