@@ -7,9 +7,11 @@ import time
 
 import numpy as np
 import nibabel as nib
-import ants
-from deepbrain import Extractor
+# Import TensorFlow/deepbrain before ants (ITK): both ship an OpenMP runtime and, on macOS,
+# if ITK's initializes first, TF's session.run deadlocks during skull stripping.
 import tensorflow as tf
+from deepbrain import Extractor
+import ants
 
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and errors from TF. Need to use it carefully

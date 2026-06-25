@@ -5,10 +5,16 @@ import sys
 
 import numpy as np
 import nibabel as nib
-import ants
+# TensorFlow (pulled in by deepbrain) must be imported before ants (ITK): both ship an
+# OpenMP runtime and, on macOS, if ITK's initializes first, TF's session.run deadlocks.
 from deepbrain import Extractor
+import ants
+try:  # antspyx >=0.4 moved ANTsImage out of the top-level namespace
+    from ants.core.ants_image import ANTsImage
+except ImportError:  # older antspyx exposed it as ants.ANTsImage
+    from ants import ANTsImage
 
-def deep_brain_skull_stripping(image: ants.ANTsImage, probability = 0.5, output_as_array=True,get_mask=False) -> ants.ANTsImage:
+def deep_brain_skull_stripping(image: ANTsImage, probability = 0.5, output_as_array=True,get_mask=False) -> ANTsImage:
     
     '''
     Executes Skull Stripping process with the DeepBrain Extraction tool.
@@ -37,7 +43,7 @@ def deep_brain_skull_stripping(image: ants.ANTsImage, probability = 0.5, output_
 
     '''
 
-    if type(image) is ants.ANTsImage:
+    if isinstance(image, ANTsImage):
         image_direction = image.direction
         image = image.numpy()
     else:

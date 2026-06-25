@@ -14,9 +14,12 @@ captum
 # MRI / neuroimaging preprocessing
 antspyx
 nibabel
-deepbrain        # requires TensorFlow
+deepbrain @ git+https://github.com/lucasthim/deepbrain.git   # TF1.x->compat.v1 patch for TF2; needs TensorFlow
 tensorflow
 
 # Tabular modeling + ensemble explainability
 pycaret==3.3.2   # 3.3.2 pins sklearn<1.5 (needs _print_elapsed_time); 2.x/3.3.0 break on modern sklearn
 interpret        # Explainable Boosting Machine (EBM); resolves to 0.7.3 under sklearn 1.4.2
+
+# --- dev/test ---
+pytest
