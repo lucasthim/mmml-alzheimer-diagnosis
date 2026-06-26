@@ -5,6 +5,11 @@ from typing import Union
 import pandas as pd
 import numpy as np
 import ants
+# antspyx >=0.4 moved ANTsImage out of the top-level namespace; restore ants.ANTsImage
+# so the type annotations below resolve regardless of antspyx version.
+if not hasattr(ants, 'ANTsImage'):
+    from ants.core.ants_image import ANTsImage as _ANTsImage
+    ants.ANTsImage = _ANTsImage
 
 def save_batch_mri(image_references:Union[np.ndarray, ants.ANTsImage],name:str = None,output_path:str = None,file_format:str = '.npz',verbose=0):
 

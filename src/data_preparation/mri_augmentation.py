@@ -5,6 +5,11 @@ import ants
 import nibabel as nib
 import numpy as np
 from scipy import ndimage, misc
+# antspyx >=0.4 moved ANTsImage out of the top-level namespace; restore ants.ANTsImage
+# so the type annotations below resolve regardless of antspyx version.
+if not hasattr(ants, 'ANTsImage'):
+    from ants.core.ants_image import ANTsImage as _ANTsImage
+    ants.ANTsImage = _ANTsImage
 
 
 def generate_augmented_images(image_3d:ants.ANTsImage,orientation,orientation_slice,num_augmented_images,sampling_range,augmentation_type = 'simple')-> dict:

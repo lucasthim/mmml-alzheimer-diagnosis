@@ -4,6 +4,11 @@ from typing import Union
 import ants
 import nibabel as nib
 import numpy as np
+# antspyx >=0.4 moved ANTsImage out of the top-level namespace; restore ants.ANTsImage
+# so the type annotations below resolve regardless of antspyx version.
+if not hasattr(ants, 'ANTsImage'):
+    from ants.core.ants_image import ANTsImage as _ANTsImage
+    ants.ANTsImage = _ANTsImage
 
 def crop_mri_at_center(image: Union[np.ndarray, ants.ANTsImage] = None, cropping_box = 100,center_dim = None) -> Union[np.ndarray, ants.ANTsImage]:
     

@@ -3,6 +3,11 @@ import os
 import ants
 import nibabel as nib
 import numpy as np
+# antspyx >=0.4 moved ANTsImage out of the top-level namespace; restore ants.ANTsImage
+# so the type annotations below resolve regardless of antspyx version.
+if not hasattr(ants, 'ANTsImage'):
+    from ants.core.ants_image import ANTsImage as _ANTsImage
+    ants.ANTsImage = _ANTsImage
 
 
 def clip_and_normalize_mri(image:ants.ANTsImage, lower_bound = 0.02, upper_bound = 99.8)-> ants.ANTsImage:

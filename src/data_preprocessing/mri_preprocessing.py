@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import argparse
 import time
+import datetime
 
 import numpy as np
 import nibabel as nib
@@ -16,7 +17,7 @@ import ants
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and errors from TF. Need to use it carefully
 
-sys.path.append("./../utils")
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
 from utils import *
 from base_mri import *
 from deepbrain_skull_strip import deep_brain_skull_stripping
@@ -139,46 +140,63 @@ def generate_metadata_for_preprocessed_images(output_path,mri_reference_path):
 # %%
 
 if __name__ == '__main__':
-    execute_preprocessing(input_path='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/raw/ADNI/', 
-                        #   output_path='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/preprocessed/20210523/', 
-                          output_path='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/preprocessed/20211002/', 
-                          box=100,
-                          skip = 0,
-                          limit = 0)
+    arg_parser = argparse.ArgumentParser(
+        description='Preprocess raw ADNI MRIs (3D pipeline: standardize -> register to atlas -> skull-strip -> crop 100^3).')
 
-# arg_parser = argparse.ArgumentParser(description='Preprocess MR images.')
+    arg_parser.add_argument('-i', '--input',
+                        metavar='input_path',
+                        type=str,
+                        required=False,
+                        default='data/mri/raw/ADNI',
+                        help='Folder of raw .nii files, searched recursively (run from the repo root). Default: data/mri/raw/ADNI')
 
-# arg_parser.add_argument('-i','--input',
-#                     metavar='input',
-#                     type=str,
-#                     required=False,
-#                     default='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/raw/ADNI/',
-#                     help='Input directory of the nifti files.')
+    arg_parser.add_argument('-o', '--output',
+                        metavar='output_path',
+                        type=str,
+                        required=False,
+                        default='data/mri/preprocessed/' + datetime.datetime.now().strftime('%Y%m%d'),
+                        help='Output folder for preprocessed .nii.gz + REFERENCE.csv. Default: data/mri/preprocessed/<today>')
 
-# arg_parser.add_argument('-o','--output',
-#                     metavar='output',
-#                     type=str,
-#                     required=False,
-#                     default='/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/data/mri/preprocessed/20210523/',
-#                     help='Output directory of the nifti files.')
+    arg_parser.add_argument('-b', '--box',
+                        metavar='box',
+                        type=int,
+                        required=False,
+                        default=100,
+                        help='Center-crop cube size in voxels. Default: 100 (-> 100x100x100).')
 
-# arg_parser.add_argument('-b','--box',
-#                     dest='box',
-#                     type=list,
-#                     default=100,
-#                     required=False,
-#                     help='Box to crop brain image.')
+    arg_parser.add_argument('-s', '--skip',
+                        metavar='skip',
+                        type=int,
+                        required=False,
+                        default=0,
+                        help='Skip the first N images (to resume a failed batch).')
 
-# arg_parser.add_argument('-s','--skip',
-#                     dest='skip',
-#                     type=int,
-#                     default=0,
-#                     required=False,
-#                     help='Amount of images to skip when executing preprocessing.')
+    arg_parser.add_argument('-l', '--limit',
+                        metavar='limit',
+                        type=int,
+                        required=False,
+                        default=0,
+                        help='Process at most N images (0 = all). Use 1 to smoke-test.')
 
-# args = arg_parser.parse_args()
+    arg_parser.add_argument('--skip-skull-stripping',
+                        action='store_true',
+                        help='Bypass DeepBrain skull stripping (registered image goes straight to crop).')
 
+    arg_parser.add_argument('-r', '--mri-reference',
+                        metavar='mri_reference_path',
+                        type=str,
+                        required=False,
+                        default=None,
+                        help='Optional prior MRI metadata CSV to merge into the output REFERENCE.csv.')
 
-# %%
+    args = arg_parser.parse_args()
 
-# selected_images,available_images,masks_and_wrong_images = list_available_images(input_dir = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/raw/ADNI/',file_format = '.nii',verbose=1)
+    execute_preprocessing(
+        input_path=args.input,
+        output_path=args.output,
+        box=args.box,
+        skip=args.skip,
+        limit=args.limit,
+        mri_reference_path=args.mri_reference,
+        skip_skull_stripping=args.skip_skull_stripping,
+    )
