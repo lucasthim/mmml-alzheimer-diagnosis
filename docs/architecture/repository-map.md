@@ -52,8 +52,8 @@ Turns raw ADNI downloads into cleaned cognitive tables and registered/skull-stri
 | File | Role | Status |
 |------|------|--------|
 | [mri_preprocessing.py](../../src/data_preprocessing/mri_preprocessing.py) | Main 3D pipeline driver: standardize → register → skull-strip → crop(100³) → integrity check → write `.nii.gz` + `REFERENCE.csv`. Has `argparse`/`__main__`. | implemented |
-| [mri_standardize.py](../../src/data_preprocessing/mri_standardize.py) | Clip to 0.02/99.8 percentiles and rescale to atlas intensity range. Hardcoded atlas thresholds `(0.05545412003993988, 92.05744171142578)` at [mri_standardize.py#L69](../../src/data_preprocessing/mri_standardize.py#L69). | implemented |
-| [antspy_registration.py](../../src/data_preprocessing/antspy_registration.py) | ANTs affine registration to atlas (`type_of_transform='Affine'`, `grad_step=0.1`). `ATLAS_PATH` hardcoded at [antspy_registration.py#L6](../../src/data_preprocessing/antspy_registration.py#L6). | implemented |
+| [mri_standardize.py](../../src/data_preprocessing/mri_standardize.py) | Clip to 0.02/99.8 percentiles and rescale to atlas intensity range. Hardcoded atlas thresholds `(0.05545412003993988, 92.05744171142578)` at [mri_standardize.py#L74](../../src/data_preprocessing/mri_standardize.py#L74). | implemented |
+| [antspy_registration.py](../../src/data_preprocessing/antspy_registration.py) | ANTs affine registration to atlas (`type_of_transform='Affine'`, `grad_step=0.1`). `ATLAS_PATH` hardcoded at [antspy_registration.py#L15](../../src/data_preprocessing/antspy_registration.py#L15). | implemented |
 | [deepbrain_skull_strip.py](../../src/data_preprocessing/deepbrain_skull_strip.py) | DeepBrain 3D U-Net `Extractor`, probability threshold `0.5`. Requires `deepbrain` + `tensorflow`. | implemented |
 | [mri_crop.py](../../src/data_preprocessing/mri_crop.py) | `crop_mri_at_center(box=100)` → 100×100×100 volume. | implemented |
 | [cognitive_tests_preprocessing.py](../../src/data_preprocessing/cognitive_tests_preprocessing.py) | Reads `ADNIMERGE.csv`, selects/renames/encodes cognitive + demographic columns → `COGNITIVE_DATA_PREPROCESSED.csv`. Column scheme in [../data/data-semantics.md](../data/data-semantics.md). | implemented |
@@ -125,7 +125,7 @@ The shared helper layer that every preprocessing/preparation script imports via 
 | File | Role | Status |
 |------|------|--------|
 | [utils.py](../../src/utils/utils.py) | 6 helpers for image listing and reference tables: `list_available_images`, `delete_useless_images`, `create_file_name_from_path`, `load_reference_table`, `create_reference_table`, `create_image_references`. Establishes the `REFERENCE.csv` filename, `<patient_id>#<image_id>` ID join, and UPPER_SNAKE_CASE columns. **Default reference path is a hardcoded Linux path** ([utils.py#L71](../../src/utils/utils.py#L71)). | implemented |
-| [base_mri.py](../../src/utils/base_mri.py) | MRI I/O + ANTs env: `save_batch_mri`, `save_mri`, `load_mri`, `set_env_variables`, `check_mri_integrity`. Default on-disk format is compressed `.npz` with array key `arr_0`. `set_env_variables` **hardcodes ANTs/NiftyReg paths on the Linux box** ([base_mri.py#L78](../../src/utils/base_mri.py#L78)). | implemented |
+| [base_mri.py](../../src/utils/base_mri.py) | MRI I/O + ANTs env: `save_batch_mri`, `save_mri`, `load_mri`, `set_env_variables`, `check_mri_integrity`. Default on-disk format is compressed `.npz` with array key `arr_0`. `set_env_variables` **hardcodes ANTs/NiftyReg paths on the Linux box** ([base_mri.py#L83](../../src/utils/base_mri.py#L83)). | implemented |
 | [extract_zip.sh](../../src/utils/extract_zip.sh) | One-line Colab-only bulk `unzip` of raw ADNI `.zip` archives (Google Drive mount paths, no shebang). First step after downloading raw data — see [../data/data-acquisition.md](../data/data-acquisition.md). | implemented (one-liner) |
 | [\_\_init\_\_.py](../../src/utils/__init__.py) | Package marker. | empty (0 bytes) |
 

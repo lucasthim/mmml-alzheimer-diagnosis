@@ -15,7 +15,7 @@ tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and errors from TF. Need to use it carefully
 
 from mri_augmentation import * 
-
+# IGNORE THIS FILE - see mri_batch_preparation.py instead
 # %%
 
 def execute_mri_data_preparation(mri_reference_path,

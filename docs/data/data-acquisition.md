@@ -13,7 +13,7 @@ You need **one pre-named file from ADNI**, plus material you assemble yourself, 
 1. `ADNIMERGE.csv` — the merged study-data table that drives the entire tabular track and the MRI-selection logic. **This is the only genuinely external, pre-named, searchable download** (see [§1](#1-acquisition-checklist)).
 2. The **five MRI image-collection metadata CSVs** (`MPRAGE_REFERENCE.csv`, `REFERENCE_MRI_ENSEMBLE_CN_AD.csv`, `REFERENCE_MRI_ENSEMBLE_0{1,2,3}.csv`) — **NOT pre-named ADNI downloads.** You create and name these yourself: each is the CSV metadata export of an MRI image collection you build, or is hand-assembled. (Confirmed by the repo owner: these were made manually — so re-creating them means re-doing the image search/collection, not finding a file.) See [§1.2](#12-how-the-metadata-exports-and-the-images-relate).
 3. The **raw T1 MP-RAGE NIfTI image collection** — the actual `.nii` brain scans, one per selected `IMAGEUID`.
-4. The **registration atlas** `atlas_t1.nii` — a T1 template, **not an ADNI download** and **not in the repo**.
+4. *(Optional)* the **registration atlas** `atlas_t1.nii` — a T1 template, **not an ADNI download** and not in the repo. As of 2026 it's optional: the pipeline falls back to ANTsPy's bundled MNI152 T1 if you don't supply one (see [§4](#4-the-registration-atlas-non-adni)).
 
 **TADPOLE is NOT needed.** No code in [src/](../../src) reads any TADPOLE file (`TADPOLE_D1_D2.csv` and friends are never referenced). The project uses `ADNIMERGE.csv` directly as its master tabular source ([cognitive_tests_preprocessing.py#L23](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L23)). Do not waste time on the TADPOLE challenge tables.
 
@@ -35,8 +35,8 @@ Every external file to obtain, where it comes from on the LONI/IDA portal, the d
 | 4 | `REFERENCE_MRI_ENSEMBLE_01.csv` | Collection-metadata export, batch 01. | Same as #2. | `data/reference/` | [mri_metadata_preprocessing.py#L23](../../src/data_preprocessing/mri_metadata_preprocessing.py#L23). |
 | 5 | `REFERENCE_MRI_ENSEMBLE_02.csv` | Collection-metadata export, batch 02. | Same as #2. | `data/reference/` | [mri_metadata_preprocessing.py#L24](../../src/data_preprocessing/mri_metadata_preprocessing.py#L24). |
 | 6 | `REFERENCE_MRI_ENSEMBLE_03.csv` | Collection-metadata export, batch 03. | Same as #2. | `data/reference/` | [mri_metadata_preprocessing.py#L25](../../src/data_preprocessing/mri_metadata_preprocessing.py#L25). |
-| 7 | **Raw MRI NIfTI collection** (many `.nii` files + `.zip` archives) | The actual T1 brain scans, one `.nii` per selected `IMAGEUID`. Naming: `ADNI_<subj>_MR_<...>_I<imageuid>.nii`. | IDA → **Image Collections → Advanced Image Search**: paste the `IMAGEUID` list from `SELECTED_IMAGES_REFERENCE.csv` ([§2](#2-producing-the-imageuid-download-list)), add to a collection, **Download → as NIfTI** (zips arrive by batch). | zips land in `data/mri/raw/`, unzip in place into `data/mri/raw/ADNI/` | Discovered by `list_available_images(input_path, file_format='.nii')` ([utils.py#L34](../../src/utils/utils.py#L34)); default `__main__` input is `.../mmml-alzheimer-diagnosis/data/mri/raw/ADNI/` ([mri_preprocessing.py#L140](../../src/data_preprocessing/mri_preprocessing.py#L140)). |
-| 8 | `atlas_t1.nii` (registration template) | T1-weighted **fixed image** every scan is affine-registered to. **NOT an ADNI download** and **not in the repo** — source it separately ([§4](#4-the-registration-atlas-non-adni)). | Not ADNI. *(Inferred: a generic T1 template such as MNI/ICBM152 T1; the literal filename is all the evidence the repo gives.)* | `data/mri/atlas/` | `atlas_t1.nii` — `ATLAS_PATH` at [antspy_registration.py#L6](../../src/data_preprocessing/antspy_registration.py#L6). |
+| 7 | **Raw MRI NIfTI collection** (many `.nii` files + `.zip` archives) | The actual T1 brain scans, one `.nii` per selected `IMAGEUID`. Naming: `ADNI_<subj>_MR_<...>_I<imageuid>.nii`. | IDA → **Image Collections → Advanced Image Search**: paste the `IMAGEUID` list from `SELECTED_IMAGES_REFERENCE.csv` ([§2](#2-producing-the-imageuid-download-list)), add to a collection, **Download → as NIfTI** (zips arrive by batch). | zips land in `data/mri/raw/`, unzip in place into `data/mri/raw/ADNI/` | Discovered by `list_available_images(input_path, file_format='.nii')` ([utils.py#L34](../../src/utils/utils.py#L34)); CLI default `--input` is repo-relative `data/mri/raw/ADNI` ([mri_preprocessing.py#L142](../../src/data_preprocessing/mri_preprocessing.py#L142)). |
+| 8 | `atlas_t1.nii` (registration template, **optional**) | T1-weighted **fixed image** every scan is affine-registered to. **NOT an ADNI download.** As of 2026 it's optional — `resolve_atlas_path()` falls back to ANTsPy's bundled MNI152 T1 if absent ([§4](#4-the-registration-atlas-non-adni)). | Not ADNI. *(MNI152 fallback built in; supply the original only for exact 2021 reproduction.)* | `data/mri/atlas/` | `atlas_t1.nii` — resolved by [antspy_registration.py#L17](../../src/data_preprocessing/antspy_registration.py#L17). |
 
 > **Only row #1 (`ADNIMERGE.csv`) is a file you "find and download" by name.** Rows #2–#6 are not searchable ADNI files — they are CSV metadata exports of MRI image collections you build (or hand-assembled tables), which you name yourself. Row #7 (the `.nii` scans) and rows #2–#6 come from the *same* image-collection step ([§1.2](#12-how-the-metadata-exports-and-the-images-relate)). Row #8 (`atlas_t1.nii`) is non-ADNI ([§4](#4-the-registration-atlas-non-adni)).
 
@@ -50,7 +50,7 @@ The metadata file is named **MPRAGE**, and the raw filenames carry processing to
 ADNI_002_S_4270_MR_MT1__N3m_Br_20111015081648646_S125083_I261073.nii
 ```
 
-(quoted in [antspy_registration.py#L7](../../src/data_preprocessing/antspy_registration.py#L7) and the [mri_preprocessing.py](../../src/data_preprocessing/mri_preprocessing.py) docstrings). So these are **T1-weighted MP-RAGE / MPRAGE** structural scans (the standard ADNI T1 sequence), in the **gradwarp + B1 + N3-corrected** family (`N3m`).
+(quoted in the [mri_preprocessing.py](../../src/data_preprocessing/mri_preprocessing.py) docstrings). So these are **T1-weighted MP-RAGE / MPRAGE** structural scans (the standard ADNI T1 sequence), in the **gradwarp + B1 + N3-corrected** family (`N3m`).
 
 When building the ADNI image collection, filter to **MRI → MP-RAGE / MPRAGE T1**. The exact corrected variant matters less than getting T1 MP-RAGE, because the pipeline re-standardizes intensities and re-registers to the atlas anyway ([mri_standardize.py](../../src/data_preprocessing/mri_standardize.py), [antspy_registration.py](../../src/data_preprocessing/antspy_registration.py)). See [mri-preprocessing.md](mri-preprocessing.md) for what happens to the scans next.
 
@@ -98,23 +98,24 @@ The metadata-concat step (#2–#6 → `RAW_MRI_REFERENCE.csv`) runs separately a
 - In the IDA portal: **Image Collections → Advanced Image Search → Image ID** field, paste a chunk of `IMAGEUID`s. The search accepts comma/space-separated IDs — that is why `mri_selection.py` prints them in batches of 1000. Add the results to a collection, repeat per chunk, then **Download as NIfTI**. *(Inferred from the docstring and the chunked-print design; ADNI's exact UI label may have changed since.)*
 - After downloading, **also export that collection's metadata CSV** — those exports are files #2–#6.
 
-### Do NOT rely on the CLI for this step
+### Running the selection step
 
-Both selection scripts crash when run as `__main__`. **Call the functions directly** from a notebook/REPL:
+`mri_selection.py` runs as a normal CLI (fixed 2026). From the repo root:
 
-- `mri_selection.py` crashes as `__main__`: it references `args.cognitive_data_path` (the arg dest is actually `cognitive`) and `--classes type=list` mis-parses ([#L73](../../src/data_preprocessing/mri_selection.py#L73), [#L80](../../src/data_preprocessing/mri_selection.py#L80)). Call `select_mris_to_download(...)` directly.
-- The `existing_reference_path` branch (subtract already-downloaded images) is dead — `filter_images` references an undefined `df_cog` and never returns ([#L34-L40](../../src/data_preprocessing/mri_selection.py#L34)). Leave `existing_reference_path=None`.
+```bash
+python src/data_preprocessing/mri_selection.py -co data/tabular/COGNITIVE_DATA_PREPROCESSED.csv -cl 0 1
+```
 
-These and related run-time bugs are catalogued in [known-issues.md](../reference/known-issues.md).
+`--classes` is `type=int, nargs='+'` (e.g. `-cl 0 1` = CN + AD; add `2` for MCI). The optional `-e/--existing` flag subtracts already-downloaded images via `filter_images(df_cog, ...)` ([#L35](../../src/data_preprocessing/mri_selection.py#L35)); omit it to select all. Note: `mri_metadata_preprocessing.py` (the file #2–#6 concat step) is the one CLI that still must be called as a function. See [known-issues.md](../reference/known-issues.md).
 
 ## 3. Step-by-step acquisition runbook
 
 | Step | Action | Output |
 |---|---|---|
-| 0 | Submit the ADNI/LONI access request + DUA ([§ access caveat](#adni-access-caveat-start-this-first--it-has-the-longest-lead-time)). Build the env and place `atlas_t1.nii` ([§4](#4-the-registration-atlas-non-adni)). | account + DUA approved; `data/mri/atlas/atlas_t1.nii` in place |
+| 0 | Submit the ADNI/LONI access request + DUA ([§ access caveat](#adni-access-caveat-start-this-first--it-has-the-longest-lead-time)). Build the env (`uv venv --python 3.11 && uv pip install -r requirements.txt`); the atlas is optional (MNI152 fallback, [§4](#4-the-registration-atlas-non-adni)). | account + DUA approved; env built |
 | 1 | Download `ADNIMERGE.csv` (file #1) from IDA → Study Data → ADNIMERGE. | `data/tabular/ADNIMERGE.csv` |
 | 2 | Run cognitive/tabular preprocessing: `execute_cognitive_data_preprocessing(input_path, output_path, exclude_ecog_tests=True)` ([cognitive_tests_preprocessing.py#L5](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L5)). The CLI works here (`-i/-o/-e`). | `data/tabular/COGNITIVE_DATA_PREPROCESSED.csv` |
-| 3 | Produce the download list: call `select_mris_to_download(cognitive_data_path, classes=[0,1], chunks=1000)` directly ([mri_selection.py#L5](../../src/data_preprocessing/mri_selection.py#L5)). | `data/tabular/SELECTED_IMAGES_REFERENCE.csv` + chunked console list |
+| 3 | Produce the download list: `python src/data_preprocessing/mri_selection.py -cl 0 1` (or call `select_mris_to_download(...)`, [mri_selection.py#L5](../../src/data_preprocessing/mri_selection.py#L5)). | `data/tabular/SELECTED_IMAGES_REFERENCE.csv` + chunked console list |
 | 4 | Paste the `IMAGEUID` chunks into ADNI Advanced Image Search, **download as NIfTI**, **and** export each collection's metadata CSV. | raw `.nii`/`.zip` under `data/mri/raw/` (file #7); metadata CSVs #2–#6 under `data/reference/` |
 | 5 | Unzip the raw archives with [extract_zip.sh](../../src/utils/extract_zip.sh) (`bash extract_zip.sh`, or paste into a Colab cell). One-liner: `unzip .../data/mri/raw/*.zip -d .../data/mri/raw/` ([#L1](../../src/utils/extract_zip.sh#L1)). **Fix the hardcoded nested Colab path first** ([§1.3](#13-path-root-gotcha)). | `.nii` files extracted under `data/mri/raw/ADNI/` |
 
@@ -122,9 +123,9 @@ After step 5 you have every input on disk. Everything downstream (metadata conca
 
 ## 4. The registration atlas (non-ADNI)
 
-`data/mri/atlas/atlas_t1.nii` is required by the 3D MRI preprocessing step (`ATLAS_PATH` hardcoded at [antspy_registration.py#L6](../../src/data_preprocessing/antspy_registration.py#L6)) but is **not in the repo and is not an ADNI download**. Source a T1 template (*inferred:* MNI/ICBM152 T1) and save it at exactly `data/mri/atlas/atlas_t1.nii`.
+The 3D MRI preprocessing step registers every scan to a T1 template. As of 2026 this is **optional**: `resolve_atlas_path()` ([antspy_registration.py#L17](../../src/data_preprocessing/antspy_registration.py#L17)) resolves it as `$ATLAS_PATH` → repo-local `data/mri/atlas/atlas_t1.nii` → **ANTsPy's bundled MNI152 T1** (`ants.get_ants_data('mni')`) as a turnkey fallback, so the step runs with no atlas file at all. To reproduce the original 2021 runs exactly, source the original `atlas_t1.nii` (a T1 template; not in the repo, not an ADNI download) and save it at `data/mri/atlas/atlas_t1.nii` (or point `$ATLAS_PATH` at it).
 
-**One catch:** the standardization step bakes in **precomputed 0.02/99.8 percentiles of this exact atlas** — the constants `(0.05545412003993988, 92.05744171142578)` at [mri_standardize.py#L69](../../src/data_preprocessing/mri_standardize.py#L69). If you use a different atlas with a different intensity range, those constants are wrong and you must recompute them via `get_atlas_thresholds(atlas_path=...)`. See [mri-preprocessing.md](mri-preprocessing.md) for how the atlas is used in registration and standardization.
+**On the baked-in standardization constants:** standardization rescales every scan onto a fixed target range — the precomputed 0.02/99.8 percentiles of the original atlas, `(0.05545412003993988, 92.05744171142578)` at [mri_standardize.py#L74](../../src/data_preprocessing/mri_standardize.py#L74). These are **independent of the registration template**: standardization runs before registration and never reads the registration atlas, so the MNI152 fallback does **not** make them wrong. Recompute via `get_atlas_thresholds(atlas_path=...)` only if you change the standardization source itself. See [mri-preprocessing.md](mri-preprocessing.md).
 
 ## 5. What you do NOT need to download
 

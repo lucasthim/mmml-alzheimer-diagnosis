@@ -30,7 +30,9 @@ The repo `README.md` defines preprocessing as steps 2–5 of the workflow:
 
 ### Hardcoded path roots
 
-Every default path is a Google-Colab Drive mount: `/content/gdrive/MyDrive/Lucas_Thimoteo/...`. Some helpers ([base_mri.py#L78](../../src/utils/base_mri.py#L78)-L81) instead hardcode a Linux box: `/home/lucasthim1/ants/...` and `/home/lucasthim1/niftyreg/...`. The two roots are inconsistent across the codebase — a sign the code was migrated from a local Ubuntu machine to Colab and never fully reconciled. When re-running, expect to override these paths.
+Most default paths are a Google-Colab Drive mount: `/content/gdrive/MyDrive/Lucas_Thimoteo/...`. Some helpers ([base_mri.py#L83](../../src/utils/base_mri.py#L83)-L86) instead hardcode a Linux box: `/home/lucasthim1/ants/...` and `/home/lucasthim1/niftyreg/...`. The two roots are inconsistent across most of the codebase — a sign the code was migrated from a local Ubuntu machine to Colab and never fully reconciled. When re-running other stages, expect to override these paths.
+
+> **Updated (2026):** the 3D MRI step itself no longer needs path surgery. [mri_preprocessing.py](../../src/data_preprocessing/mri_preprocessing.py) now runs as a normal CLI with repo-relative defaults (`data/mri/raw/ADNI` → `data/mri/preprocessed/<today>`) and a `__file__`-relative `sys.path`, and the registration atlas resolves automatically (Step 2): `$ATLAS_PATH` → repo-local `data/mri/atlas/atlas_t1.nii` → ANTsPy's bundled MNI152 T1 fallback.
 
 ### Reconstructed `data/` layout (inferred from path strings)
 
@@ -84,8 +86,9 @@ flowchart TD
 | | |
 |---|---|
 | **Input** | Raw `.nii` volumes under `input_path` (default in `__main__`: `data/mri/raw/ADNI/`). Discovered recursively by `list_available_images` (glob `*.nii`, masks excluded). |
-| **Output** | One `.nii.gz` per usable image in `output_path` (default `__main__`: `data/mri/preprocessed/20211002/`), plus `REFERENCE.csv` in the same folder. |
-| **Signature** | `execute_preprocessing(input_path, output_path, images_to_process=None, box=100, skip=0, limit=0, mri_reference_path=None, skip_skull_stripping=False)` ([L26](../../src/data_preprocessing/mri_preprocessing.py#L26)). |
+| **Output** | One `.nii.gz` per usable image in `output_path` (CLI default: `data/mri/preprocessed/<today>`), plus `REFERENCE.csv` in the same folder. |
+| **Signature** | `execute_preprocessing(input_path, output_path, images_to_process=None, box=100, skip=0, limit=0, mri_reference_path=None, skip_skull_stripping=False)` ([L29](../../src/data_preprocessing/mri_preprocessing.py#L29)). |
+| **CLI** | Runs as a normal script — `python src/data_preprocessing/mri_preprocessing.py [-i IN] [-o OUT] [-l N] [--skip-skull-stripping] [-r MRI_REF]` ([L142](../../src/data_preprocessing/mri_preprocessing.py#L142)). Defaults to every `.nii` under `data/mri/raw/ADNI`; the `sys.path` is `__file__`-relative so it works from any CWD. |
 
 The per-image loop ([L86](../../src/data_preprocessing/mri_preprocessing.py#L86)-L118):
 
@@ -104,27 +107,27 @@ if integrity_check:
 
 - `skip` / `limit` slice `images_to_process` so a failed batch can resume ([L70](../../src/data_preprocessing/mri_preprocessing.py#L70)-L80).
 - `skip_skull_stripping=True` bypasses DeepBrain and feeds the registered image straight to the cropper ([L99](../../src/data_preprocessing/mri_preprocessing.py#L99)-L104).
-- **Integrity check** ([base_mri.py#L83](../../src/utils/base_mri.py#L83)-L87): `image.numpy().sum().sum().sum() > 0`. If the volume is all-zeros (skull-strip wiped everything), the image is dropped and **not** saved ([L114](../../src/data_preprocessing/mri_preprocessing.py#L114)-L115). This check exists specifically to catch DeepBrain failures.
+- **Integrity check** ([base_mri.py#L88](../../src/utils/base_mri.py#L88)-L92): `image.numpy().sum().sum().sum() > 0`. If the volume is all-zeros (skull-strip wiped everything), the image is dropped and **not** saved ([L114](../../src/data_preprocessing/mri_preprocessing.py#L114)-L115). This check exists specifically to catch DeepBrain failures.
 
 ---
 
 ## Step 1 — Standardize (`mri_standardize.py`)
 
-Intensity clipping + atlas-anchored normalization. `clip_and_normalize_mri(image, lower_bound=0.02, upper_bound=99.8)` ([mri_standardize.py#L8](../../src/data_preprocessing/mri_standardize.py#L8)).
+Intensity clipping + atlas-anchored normalization. `clip_and_normalize_mri(image, lower_bound=0.02, upper_bound=99.8)` ([mri_standardize.py#L13](../../src/data_preprocessing/mri_standardize.py#L13)).
 
 | | |
 |---|---|
 | **Input** | An `ants.ANTsImage` (the raw loaded volume). |
 | **Output** | An `ants.ANTsImage` with intensities rescaled. |
 
-Steps ([L30](../../src/data_preprocessing/mri_standardize.py#L30)-L40):
+Steps ([L35](../../src/data_preprocessing/mri_standardize.py#L35)-L45):
 
-1. **NaN handling** — `image_has_nan` ([L42](../../src/data_preprocessing/mri_standardize.py#L42)); if any NaN, `replace_nan` ([L47](../../src/data_preprocessing/mri_standardize.py#L47)) sets NaNs to `np.nanmin` of the volume.
-2. **Clip outliers** — compute the **0.02** and **99.8** percentiles of the image (`get_percentiles`, [L52](../../src/data_preprocessing/mri_standardize.py#L52)) and clip to those thresholds (`clip_image_intensity`, [L62](../../src/data_preprocessing/mri_standardize.py#L62)).
-3. **Rescale onto atlas range** — read the atlas reference thresholds (`get_atlas_thresholds`, [L67](../../src/data_preprocessing/mri_standardize.py#L67)) and linearly rescale the clipped image into that range (`scale_image_linearly`, [L58](../../src/data_preprocessing/mri_standardize.py#L58)): `(img - lower) / (upper - lower)`.
-4. **Rebuild** an ANTsImage preserving the original `direction` ([L39](../../src/data_preprocessing/mri_standardize.py#L39)).
+1. **NaN handling** — `image_has_nan` ([L47](../../src/data_preprocessing/mri_standardize.py#L47)); if any NaN, `replace_nan` ([L52](../../src/data_preprocessing/mri_standardize.py#L52)) sets NaNs to `np.nanmin` of the volume.
+2. **Clip outliers** — compute the **0.02** and **99.8** percentiles of the image (`get_percentiles`, [L57](../../src/data_preprocessing/mri_standardize.py#L57)) and clip to those thresholds (`clip_image_intensity`, [L67](../../src/data_preprocessing/mri_standardize.py#L67)).
+3. **Rescale onto atlas range** — read the atlas reference thresholds (`get_atlas_thresholds`, [L72](../../src/data_preprocessing/mri_standardize.py#L72)) and linearly rescale the clipped image into that range (`scale_image_linearly`, [L63](../../src/data_preprocessing/mri_standardize.py#L63)): `(img - lower) / (upper - lower)`.
+4. **Rebuild** an ANTsImage preserving the original `direction` ([L44](../../src/data_preprocessing/mri_standardize.py#L44)).
 
-**Hardcoded atlas thresholds** ([L69](../../src/data_preprocessing/mri_standardize.py#L69)): when `atlas_path is None` (the default in the pipeline), `get_atlas_thresholds` returns the magic tuple `(0.05545412003993988, 92.05744171142578)`, commented as "for 0.02 and 99.8". These are the precomputed 0.02/99.8 percentiles of `atlas_t1.nii`, baked in so the atlas is not re-read for every image. Normalization is therefore **atlas-anchored**: every subject's intensities are mapped onto the template's intensity scale.
+**Hardcoded atlas thresholds** ([L74](../../src/data_preprocessing/mri_standardize.py#L74)): when `atlas_path is None` (the default in the pipeline), `get_atlas_thresholds` returns the magic tuple `(0.05545412003993988, 92.05744171142578)`, commented as "for 0.02 and 99.8". These are the precomputed 0.02/99.8 percentiles of `atlas_t1.nii`, baked in so the atlas is not re-read for every image. Normalization is therefore **atlas-anchored**: every subject's intensities are mapped onto the template's intensity scale. These constants are a **fixed normalization target** and are independent of which registration template Step 2 uses — standardization runs first and never reads the registration atlas, so the MNI152 fallback does **not** affect them (see [known-issues.md](../reference/known-issues.md) §7).
 
 > Standardization runs **before** registration ([mri_preprocessing.py#L93](../../src/data_preprocessing/mri_preprocessing.py#L93)-L97), so the atlas intensity range is applied to the un-registered image. "Standardize based on atlas" refers only to the intensity range, not spatial alignment — the spatial alignment happens in Step 2.
 
@@ -132,23 +135,23 @@ Steps ([L30](../../src/data_preprocessing/mri_standardize.py#L30)-L40):
 
 ## Step 2 — Register to atlas (`antspy_registration.py`)
 
-ANTsPy affine registration to a T1 template. `register_image_with_atlas(moving, type_of_transform='Affine')` ([antspy_registration.py#L10](../../src/data_preprocessing/antspy_registration.py#L10)).
+ANTsPy affine registration to a T1 template. `register_image_with_atlas(moving, type_of_transform='Affine')` ([antspy_registration.py#L35](../../src/data_preprocessing/antspy_registration.py#L35)).
 
 | | |
 |---|---|
-| **Template (fixed)** | `ATLAS_PATH = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/atlas/atlas_t1.nii'` ([L6](../../src/data_preprocessing/antspy_registration.py#L6)). A T1-weighted atlas/template — **(inferred)** a generic T1 brain template (likely MNI/ICBM T1; the literal filename is all the evidence the repo gives). See [data-acquisition.md](data-acquisition.md) for re-obtaining the atlas. |
+| **Template (fixed)** | Resolved at call time by `resolve_atlas_path()` ([L17](../../src/data_preprocessing/antspy_registration.py#L17)), in priority order: `$ATLAS_PATH` → repo-local `data/mri/atlas/atlas_t1.nii` → **ANTsPy's bundled MNI152 T1** (`ants.get_ants_data('mni')`, the turnkey fallback). The original Colab `ATLAS_PATH` constant ([L15](../../src/data_preprocessing/antspy_registration.py#L15)) is kept only for reference. The MNI152 fallback is a standard substitute but **not** the original `atlas_t1.nii`, so registrations differ slightly from the 2021 runs — drop the original atlas at `data/mri/atlas/atlas_t1.nii` (or set `$ATLAS_PATH`) to reproduce exactly. See [data-acquisition.md](data-acquisition.md). |
 | **Input (moving)** | The standardized `ants.ANTsImage`. |
 | **Output** | Warped/registered `ants.ANTsImage` resampled onto the template grid. |
 
-Steps ([L29](../../src/data_preprocessing/antspy_registration.py#L29)-L32):
+Steps ([L54](../../src/data_preprocessing/antspy_registration.py#L54)-L57):
 
 ```python
-fixed       = ants.image_read(ATLAS_PATH)
+fixed       = ants.image_read(resolve_atlas_path())   # $ATLAS_PATH -> data/mri/atlas/atlas_t1.nii -> MNI152 fallback
 mytx        = ants.registration(fixed=fixed, moving=moving, type_of_transform='Affine', grad_step=0.1)
 warpedimage = ants.apply_transforms(fixed=fixed, moving=moving, transformlist=mytx['fwdtransforms'])
 ```
 
-- **`type_of_transform='Affine'`** is the default; the docstring notes `'Similarity'` and `'Rigid'` were also tested ([L20](../../src/data_preprocessing/antspy_registration.py#L20)).
+- **`type_of_transform='Affine'`** is the default; the docstring notes `'Similarity'` and `'Rigid'` were also tested ([L45](../../src/data_preprocessing/antspy_registration.py#L45)).
 - **`grad_step=0.1`** is the only non-default registration hyperparameter.
 - After registration the image sits on the template grid, which is what makes the fixed-position center crop in Step 4 meaningful across subjects.
 
@@ -179,7 +182,7 @@ Steps ([L40](../../src/data_preprocessing/deepbrain_skull_strip.py#L40)-L66):
 
 ## Step 4 — Center crop (`mri_crop.py`)
 
-Center crop to a fixed cubic box. `crop_mri_at_center(image, cropping_box=100, center_dim=None)` ([mri_crop.py#L8](../../src/data_preprocessing/mri_crop.py#L8)).
+Center crop to a fixed cubic box. `crop_mri_at_center(image, cropping_box=100, center_dim=None)` ([mri_crop.py#L13](../../src/data_preprocessing/mri_crop.py#L13)).
 
 | | |
 |---|---|
@@ -188,13 +191,13 @@ Center crop to a fixed cubic box. `crop_mri_at_center(image, cropping_box=100, c
 
 Steps:
 
-- `get_lower_and_upper_dimensions` ([L40](../../src/data_preprocessing/mri_crop.py#L40)-L62): if `center_dim` is None, `center = [ceil(dim/2) for dim in image.shape]`; `lower = center - box/2`, `upper = center + box/2`.
-- numpy path → array slice (`crop_as_numpy`, [L64](../../src/data_preprocessing/mri_crop.py#L64)); ANTs path → `ants.crop_indices(image, lowerind, upperind)` ([L37](../../src/data_preprocessing/mri_crop.py#L37)).
+- `get_lower_and_upper_dimensions` ([L45](../../src/data_preprocessing/mri_crop.py#L45)-L67): if `center_dim` is None, `center = [ceil(dim/2) for dim in image.shape]`; `lower = center - box/2`, `upper = center + box/2`.
+- numpy path → array slice (`crop_as_numpy`, [L69](../../src/data_preprocessing/mri_crop.py#L69)); ANTs path → `ants.crop_indices(image, lowerind, upperind)` ([L42](../../src/data_preprocessing/mri_crop.py#L42)).
 - **Default box = 100** → output volume is **100×100×100** (the pipeline passes `box=100`).
 
 This crop is only valid because each image was first affine-registered onto the same template grid, so anatomical structures sit at consistent coordinates.
 
-> Dead branch: `if image is None: image = ants.image_read(input_path)` ([L29](../../src/data_preprocessing/mri_crop.py#L29)-L30) references an undefined `input_path`. Never hit because the caller always passes an image. See [known-issues.md](../reference/known-issues.md).
+> Dead branch: `if image is None: image = ants.image_read(input_path)` ([L34](../../src/data_preprocessing/mri_crop.py#L34)-L35) references an undefined `input_path`. Never hit because the caller always passes an image. See [known-issues.md](../reference/known-issues.md).
 
 ---
 
@@ -202,7 +205,7 @@ This crop is only valid because each image was first affine-registered onto the 
 
 ### Output naming convention
 
-`save_mri` ([base_mri.py#L32](../../src/utils/base_mri.py#L32)-L62) writes `<output_path>/<name><file_format>`. `name = create_file_name_from_path(image_path)` ([utils.py#L68](../../src/utils/utils.py#L68)-L69) strips the directory and double extension. For example:
+`save_mri` ([base_mri.py#L37](../../src/utils/base_mri.py#L37)-L67) writes `<output_path>/<name><file_format>`. `name = create_file_name_from_path(image_path)` ([utils.py#L68](../../src/utils/utils.py#L68)-L69) strips the directory and double extension. For example:
 
 ```
 input :  ADNI_002_S_4270_MR_MT1__N3m_Br_20111015081648646_S125083_I261073.nii
@@ -228,9 +231,10 @@ After the loop, `generate_metadata_for_preprocessed_images(output_path, mri_refe
 
 ## Environment & dependencies
 
-- `set_env_variables` ([base_mri.py#L75](../../src/utils/base_mri.py#L75)-L81) exports `ANTSPATH=/home/lucasthim1/ants/ants_install/bin` and `NIFTYREG_INSTALL=/home/lucasthim1/niftyreg/niftyreg_install` and appends both to `PATH`. These Linux paths will not exist on Colab/Mac — but ANTs is used via the `antspyx` Python library, so the env vars are likely vestigial (NiftyReg is never actually called in this subsystem).
-- TensorFlow logging is silenced at import ([mri_preprocessing.py#L14](../../src/data_preprocessing/mri_preprocessing.py#L14)-L15).
-- **`requirements.txt` is incomplete for this pipeline.** It lists only `numpy, pandas, matplotlib, sklearn, torch, antspyx` — it does **not** list `deepbrain`, `nibabel`, or `tensorflow`, all imported by the image pipeline. Install those manually before re-running. Cross-referenced in [data-acquisition.md](data-acquisition.md) and [known-issues.md](../reference/known-issues.md).
+- `set_env_variables` ([base_mri.py#L80](../../src/utils/base_mri.py#L80)-L86) exports `ANTSPATH=/home/lucasthim1/ants/ants_install/bin` and `NIFTYREG_INSTALL=/home/lucasthim1/niftyreg/niftyreg_install` and appends both to `PATH`. These Linux paths will not exist on Colab/Mac — but ANTs is used via the `antspyx` Python library, so the env vars are likely vestigial (NiftyReg is never actually called in this subsystem).
+- TensorFlow logging is silenced at import ([mri_preprocessing.py#L17](../../src/data_preprocessing/mri_preprocessing.py#L17)-L18). **Import order matters:** `tensorflow`/`deepbrain` are imported *before* `ants` (ITK) to avoid an OpenMP deadlock during skull stripping on macOS — preserve that order in notebooks.
+- **`requirements.txt` is now complete** (rebuilt 2026-06-24): build the env with `uv venv --python 3.11 && uv pip install -r requirements.txt`. It now lists the full set including `deepbrain` (a TF2/`compat.v1` fork), `tensorflow`, `nibabel`, `captum`, `pycaret==3.3.2`, and `interpret`. Cross-referenced in [data-acquisition.md](data-acquisition.md) and [known-issues.md](../reference/known-issues.md) §5.2.
+- **antspyx compatibility:** modern antspyx moved `ANTsImage` out of the top-level namespace; the pipeline modules ([base_mri.py](../../src/utils/base_mri.py), [antspy_registration.py](../../src/data_preprocessing/antspy_registration.py), [mri_crop.py](../../src/data_preprocessing/mri_crop.py), [mri_standardize.py](../../src/data_preprocessing/mri_standardize.py)) restore `ants.ANTsImage` with an idempotent shim so the `ants.ANTsImage` type hints still resolve.
 
 ---
 
@@ -283,7 +287,7 @@ Decides the concrete set of image IDs to fetch from the ADNI portal by intersect
 
 Logic: `pd.read_csv(cognitive).dropna().query("IMAGEUID != 999999 and DIAGNOSIS in @classes")` ([L18](../../src/data_preprocessing/mri_selection.py#L18)) drops NaN rows, the no-image sentinel, and any class outside the request (default `[0,1]` = `CN` and `AD`; MCI=2 excluded). It then prints the unique `IMAGEUID`s in `chunks` of 1000 to the console so they can be pasted into the ADNI "Advanced Image Search" download form batch by batch ([L24](../../src/data_preprocessing/mri_selection.py#L24)-L30), and writes the list to `SELECTED_IMAGES_REFERENCE.csv`. See [data-acquisition.md](data-acquisition.md) for the download workflow.
 
-> Two broken paths. (1) `filter_images(existing_reference_path)` ([L34](../../src/data_preprocessing/mri_selection.py#L34)-L40) — the "subtract already-downloaded images" branch — references `df_cog` (a local of its caller, not passed in) → `NameError`; it never returns the filtered frame; and the caller assigns `df_cog = filter_images(...)`, making `df_cog` `None`. The branch is effectively dead. (2) The `__main__`/argparse block ([L43](../../src/data_preprocessing/mri_selection.py#L43)-L80) calls `args.cognitive_data_path` (the dest is `cognitive`) → `AttributeError`, and `--classes` uses `type=list`, which splits a string into characters. Call the function directly. See [known-issues.md](../reference/known-issues.md).
+> **Fixed (2026):** both former bugs are resolved. `filter_images(df_cog, existing_reference_path)` ([L35](../../src/data_preprocessing/mri_selection.py#L35)) now takes the frame and returns the filtered result, so the "subtract already-downloaded images" branch works. The `__main__`/argparse block ([L76](../../src/data_preprocessing/mri_selection.py#L76)) runs as a normal CLI — it reads the correct `args.cognitive` dest and `--classes` is `type=int, nargs='+'` (e.g. `-cl 0 1`). Run `python src/data_preprocessing/mri_selection.py` from the repo root. See [known-issues.md](../reference/known-issues.md).
 
 ### `ensemble_preprocessing.py` — join tabular + MRI
 

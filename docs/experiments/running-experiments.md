@@ -37,21 +37,20 @@ flowchart TD
     O --> P["Step 13: explanation (Captum + EBM weights)"]
 ```
 
-The dotted truth: steps 3a, 4, 5b, 6, 7, 11 are all driven by importing functions or editing notebook cells — only steps 2 and 6 have working CLIs. See [the gotchas table](#must-fix-before-you-run-anything) for which ones crash if invoked as `__main__`.
+The dotted truth: steps 4, 5b, 7, 11 are driven by importing functions or editing notebook cells; steps 2, 3a, 5, and 6 have working CLIs (3a `mri_selection` and 5 `mri_preprocessing` were fixed in 2026). See [the gotchas table](#must-fix-before-you-run-anything) for which ones still crash if invoked as `__main__`.
 
 ## Step 0 — Access, environment, atlas
 
 - Get the ADNI/LONI account + accepted Data Use Agreement (approval takes days to weeks). Full instructions: [data-acquisition.md](../data/data-acquisition.md).
-- Build the environment. The committed [requirements.txt](../../requirements.txt) is **incomplete** — it lists only `numpy, pandas, matplotlib, sklearn, torch, antspyx`, and `sklearn` is the deprecated stub name (install `scikit-learn`). The real install set is:
+- Build the environment. [requirements.txt](../../requirements.txt) was **rebuilt (2026-06-24)** and now lists the full, working set — build a single uv venv on Python 3.11:
 
   ```
-  numpy pandas matplotlib scikit-learn scipy torch torchvision
-  antspyx nibabel deepbrain tensorflow captum interpret pycaret
+  uv venv --python 3.11 && uv pip install -r requirements.txt
   ```
 
-  Everything is unpinned. Expect conflicts on a 4-year-old project, worst with `deepbrain`+`tensorflow` (TF1-era), `pycaret`, `antspyx`, and `torch`/`torchvision`. Recommendation (inferred): **two environments** — one with TF1/deepbrain just for skull-strip preprocessing (Step 5), one modern env for training and evaluation. The original conda env was named `alzheimer`. Full dependency breakdown is in [data-acquisition.md](../data/data-acquisition.md).
-- Place the registration atlas at `data/mri/atlas/atlas_t1.nii` (`ATLAS_PATH`, [antspy_registration.py:6](../../src/data_preprocessing/antspy_registration.py#L6)). It is **not an ADNI download** and not in the repo; source a T1 template (inferred: MNI/ICBM152 T1). If you use a different atlas, the precomputed standardization percentiles `(0.05545412003993988, 92.05744171142578)` baked in at [mri_standardize.py:69](../../src/data_preprocessing/mri_standardize.py#L69) are wrong — recompute them with `get_atlas_thresholds(atlas_path=...)`.
-- **Pick one path root and commit to it.** The code interleaves two roots: most modules read `/content/gdrive/MyDrive/Lucas_Thimoteo/data/...`, but MRI preprocessing writes to a nested `.../mmml-alzheimer-diagnosis/data/...` ([mri_preprocessing.py:140-142](../../src/data_preprocessing/mri_preprocessing.py#L140), [extract_zip.sh:1](../../src/utils/extract_zip.sh#L1)). Put all data under one root and fix the preprocessing `__main__` paths to match before running.
+  Key pins: `deepbrain` installs from a fork patched to run on **TF2 via `tf.compat.v1`** (so one env covers skull-strip *and* training — no separate TF1 env), and `pycaret==3.3.2` pins `scikit-learn<1.5`. Full dependency breakdown is in [known-issues.md](../reference/known-issues.md) §5.2 and [data-acquisition.md](../data/data-acquisition.md).
+- **Registration atlas (now optional).** `resolve_atlas_path()` ([antspy_registration.py:17](../../src/data_preprocessing/antspy_registration.py#L17)) resolves it as `$ATLAS_PATH` → repo-local `data/mri/atlas/atlas_t1.nii` → **ANTsPy's bundled MNI152 T1** fallback, so the step runs out of the box. For exact reproduction of the 2021 runs, drop the original `atlas_t1.nii` at `data/mri/atlas/` (or set `$ATLAS_PATH`). Note: the baked-in standardization percentiles `(0.05545412003993988, 92.05744171142578)` at [mri_standardize.py:74](../../src/data_preprocessing/mri_standardize.py#L74) are a **fixed normalization target** independent of the registration template — the MNI152 fallback does **not** make them wrong (see [known-issues.md](../reference/known-issues.md) §7).
+- **Use the repo-relative `data/` layout.** Older modules still default to Colab roots (`/content/gdrive/MyDrive/Lucas_Thimoteo/data/...`), and `extract_zip.sh` writes to a nested `.../mmml-alzheimer-diagnosis/data/...` root ([extract_zip.sh:1](../../src/utils/extract_zip.sh#L1)) — fix those before running. The 3D preprocessing CLI no longer needs this: it defaults to repo-relative `data/mri/raw/ADNI` → `data/mri/preprocessed/<today>`.
 
 ## Step 1 — Get `ADNIMERGE.csv` (now: rebuild from ADNIMERGE2)
 
@@ -78,11 +77,11 @@ python3 scripts/rebuild_adnimerge_from_adnimerge2.py \
 
 ## Step 3a — MRI selection (produce the download list)
 
-- **Script / fn:** [mri_selection.py](../../src/data_preprocessing/mri_selection.py) → `select_mris_to_download(cognitive_data_path, classes=[0,1], chunks=1000)` ([:5](../../src/data_preprocessing/mri_selection.py#L5)). **Call the function directly** — the CLI crashes as `__main__` (`args.cognitive_data_path` doesn't exist; the dest is `cognitive`; `--classes type=list` mis-parses, [:73,80](../../src/data_preprocessing/mri_selection.py#L73)).
+- **Script / fn:** [mri_selection.py](../../src/data_preprocessing/mri_selection.py) → `select_mris_to_download(cognitive_data_path, classes=[0,1], chunks=1000, existing_reference_path=None)` ([:5](../../src/data_preprocessing/mri_selection.py#L5)). **The CLI works** (fixed 2026): `python src/data_preprocessing/mri_selection.py [-co COG] [-cl 0 1] [-ch 1000] [-e EXISTING]` from the repo root ([:76](../../src/data_preprocessing/mri_selection.py#L76)).
 - **In:** `data/tabular/COGNITIVE_DATA_PREPROCESSED.csv` ([:18](../../src/data_preprocessing/mri_selection.py#L18)).
 - **Out:** `data/tabular/SELECTED_IMAGES_REFERENCE.csv` (single `IMAGEUID` column, [:31](../../src/data_preprocessing/mri_selection.py#L31)) plus a chunked console list (1000 IDs per chunk) for pasting into the ADNI search.
 - The download list is derived **from the cognitive table, not from image metadata**: it does `.dropna().query("IMAGEUID != 999999 and DIAGNOSIS in @classes")` with default `classes=[0,1]` = **CN and AD** (MCI=2 excluded by default).
-- Leave `existing_reference_path=None`: the "subtract already-downloaded" branch is dead code (`filter_images` references an undefined `df_cog` and never returns, [:34-40](../../src/data_preprocessing/mri_selection.py#L34)).
+- The optional `existing_reference_path` (`-e`) now works — it subtracts already-downloaded images via `filter_images(df_cog, ...)` ([:35](../../src/data_preprocessing/mri_selection.py#L35)). Omit it to select all.
 - (Part of README step 3.)
 
 ## Step 3b — Download MRIs + their metadata exports
@@ -104,10 +103,10 @@ python3 scripts/rebuild_adnimerge_from_adnimerge2.py \
 
 ## Step 5 — MRI 3D preprocessing (register / skull-strip / crop / standardize)
 
-- **Script / fn:** [mri_preprocessing.py](../../src/data_preprocessing/mri_preprocessing.py) → `execute_preprocessing(input_path, output_path, box=100, skip=0, limit=0, ...)` ([:26](../../src/data_preprocessing/mri_preprocessing.py#L26)); run via the `__main__` block ([:139-145](../../src/data_preprocessing/mri_preprocessing.py#L139)).
-- **In:** raw `.nii` under `data/mri/raw/ADNI/` (default `__main__` input, [:140](../../src/data_preprocessing/mri_preprocessing.py#L140)). Needs `atlas_t1.nii` and the `deepbrain`+TensorFlow env from Step 0.
-- **Per-image pipeline order** ([:86-118](../../src/data_preprocessing/mri_preprocessing.py#L86)): standardize (clip 0.02/99.8 → atlas-anchored rescale) → **affine register to atlas** (`type_of_transform='Affine'`, `grad_step=0.1`) → **DeepBrain skull-strip** (`probability=0.5`) → **center-crop to 100×100×100** (`box=100`) → integrity check (drop all-zero, [base_mri.py:83-87](../../src/utils/base_mri.py#L83)) → save `.nii.gz`. Full detail in [mri-preprocessing.md](../data/mri-preprocessing.md).
-- **Out:** one `.nii.gz` per usable scan in `data/mri/preprocessed/<YYYYMMDD>/` (default `__main__` output `.../20211002/`, [:142](../../src/data_preprocessing/mri_preprocessing.py#L142)) + a per-folder `REFERENCE.csv`.
+- **Script / fn:** [mri_preprocessing.py](../../src/data_preprocessing/mri_preprocessing.py) → `execute_preprocessing(input_path, output_path, box=100, skip=0, limit=0, mri_reference_path=None, skip_skull_stripping=False)` ([:29](../../src/data_preprocessing/mri_preprocessing.py#L29)). **The CLI works** (fixed 2026): `python src/data_preprocessing/mri_preprocessing.py [-i IN] [-o OUT] [-l N] [-r MRI_REF]` ([:142](../../src/data_preprocessing/mri_preprocessing.py#L142)); the `sys.path` is `__file__`-relative.
+- **In:** raw `.nii` under `data/mri/raw/ADNI/` (CLI default `--input`). The registration atlas resolves automatically (MNI152 fallback, Step 0); needs the `deepbrain`+TensorFlow env.
+- **Per-image pipeline order** ([:86-118](../../src/data_preprocessing/mri_preprocessing.py#L86)): standardize (clip 0.02/99.8 → atlas-anchored rescale) → **affine register to atlas** (`type_of_transform='Affine'`, `grad_step=0.1`) → **DeepBrain skull-strip** (`probability=0.5`) → **center-crop to 100×100×100** (`box=100`) → integrity check (drop all-zero, [base_mri.py:88-87](../../src/utils/base_mri.py#L88)) → save `.nii.gz`. Full detail in [mri-preprocessing.md](../data/mri-preprocessing.md).
+- **Out:** one `.nii.gz` per usable scan in `data/mri/preprocessed/<YYYYMMDD>/` (CLI default `--output data/mri/preprocessed/<today>`) + a per-folder `REFERENCE.csv`.
 - The documented "Labeling" step does **not** run ([mri_label.py](../../src/data_preprocessing/mri_label.py) is fully commented out). Resume failed batches with `skip`/`limit`.
 - **README discrepancy:** README says run `mri_preprocess.py`; the actual file is `mri_preprocessing.py`. (README step 5.)
 
@@ -192,20 +191,20 @@ These crash or silently corrupt a fresh modern run. Patch them first. Every entr
 
 | # | Gotcha | Where | Fix |
 |---|---|---|---|
-| 1 | **Hardcoded Colab/Drive paths** everywhere (`/content/gdrive/MyDrive/Lucas_Thimoteo/...`); preprocessing uses a *different* nested root than the rest | [mri_preprocessing.py:140-142](../../src/data_preprocessing/mri_preprocessing.py#L140), [extract_zip.sh:1](../../src/utils/extract_zip.sh#L1), [mri_train.py:73,130](../../src/model_training/mri_train.py#L73), and throughout | Pick one root; edit each module's `__main__` + `extract_zip.sh` to match |
+| 1 | **Hardcoded Colab/Drive paths** in most modules (`/content/gdrive/MyDrive/Lucas_Thimoteo/...`) and `extract_zip.sh`'s nested root | [extract_zip.sh:1](../../src/utils/extract_zip.sh#L1), [mri_train.py:73,130](../../src/model_training/mri_train.py#L73), and throughout (**not** `mri_preprocessing.py` — its CLI now defaults to repo-relative `data/`) | Use the repo-relative `data/` layout; edit the remaining modules' `__main__` + `extract_zip.sh` to match |
 | 2 | **No central config / no runner** — [experiment_config.json](../../src/experiment/experiment_config.json) is an empty stub, [run.py](../../src/experiment/run.py) `run()` is `pass`, [src/run/](../../src/run/) files are 0 bytes | `src/experiment/`, `src/run/` | Don't expect one-command runs; import and call functions directly |
-| 3 | **Broken CLIs** — `mri_selection.py` and `mri_metadata_preprocessing.py` crash as `__main__` | [mri_selection.py:73-80](../../src/data_preprocessing/mri_selection.py#L73), [mri_metadata_preprocessing.py:122-124](../../src/data_preprocessing/mri_metadata_preprocessing.py#L122) | Import and call the functions directly |
+| 3 | **Broken CLI** — `mri_metadata_preprocessing.py` crashes as `__main__` (`mri_selection.py` and `mri_preprocessing.py` are **fixed**) | [mri_metadata_preprocessing.py:122-124](../../src/data_preprocessing/mri_metadata_preprocessing.py#L122) | Import and call `execute_mri_metadata_preprocessing_*` directly |
 | 4 | **`mri_batch_preparation` dict-key collision** — duplicate `axial`/`sagittal` keys drop the `range(15,36)` ranges | [mri_batch_preparation.py:20-26](../../src/data_preparation/mri_batch_preparation.py#L20) | Use a list of `(orient, range)` tuples so both ranges survive |
 | 5 | **Inverted zero-pad** — slice filenames get a spurious leading zero (`coronal_050.npz`) | [mri_batch_preparation.py:208](../../src/data_preparation/mri_batch_preparation.py#L208) | Flip the condition (`< 10` should be the padded branch) |
 | 6 | **CNN default params omit `'loss'`** → `KeyError` if defaults used | [mri_train.py:206-213](../../src/model_training/mri_train.py#L206) | Always pass an explicit `additional_experiment_params` dict including `'loss'` |
 | 7 | **`WeightedFocalLoss` hardcodes `.cuda()`** → crashes on CPU/MPS | [loss.py:10](../../src/models/loss.py#L10) | Use the module `device` instead of `.cuda()` |
 | 8 | **`np.float` removed (NumPy ≥1.24)** → breaks DeLong + `check_auc_difference` | [de_long_evaluation.py:17,25,61-63](../../src/model_evaluation/de_long_evaluation.py#L17) | Replace `np.float` → `np.float64`/`float` |
-| 9 | **`requirements.txt` incomplete** — 6 listed, ~14 actually needed; `sklearn` is the deprecated stub | [requirements.txt](../../requirements.txt) | Install the full set from [Step 0](#step-0--access-environment-atlas) |
+| 9 | ~~**`requirements.txt` incomplete**~~ — **fixed (2026-06-24)**, now lists the full set | [requirements.txt](../../requirements.txt) | `uv venv --python 3.11 && uv pip install -r requirements.txt` ([Step 0](#step-0--access-environment-atlas)) |
 | 10 | **`ensemble_preparation` writes an index column** (`to_csv` without `index=False`) | [ensemble_preparation.py:52](../../src/data_preparation/ensemble_preparation.py#L52) | Read with `index_col=0` downstream, or add `index=False` |
 | 11 | **No model persistence** for tabular/ensemble (PyCaret/EBM/LR); CNN save can be skipped | [cognitive_tests_train.py:100](../../src/model_training/cognitive_tests_train.py#L100) (`# TODO`), [ensemble_train.py](../../src/model_training/ensemble_train.py), [mri_train.py:413](../../src/model_training/mri_train.py#L413) | Add explicit `pickle`/`joblib` saves; save the CNN unconditionally |
 | 12 | **Manual notebook glue** — `Score_1 → COGTEST_SCORE` rename and demographic merges live only in notebooks | Steps 10–11 | Reproduce those notebook cells; they are not in the scripts |
-| 13 | **Atlas constants baked in** for one specific `atlas_t1.nii` | [mri_standardize.py:69](../../src/data_preprocessing/mri_standardize.py#L69) | If using a different atlas, recompute the 0.02/99.8 percentiles |
-| 14 | **Non-deterministic augmentation** — `random.seed(a=None)` reseeds from OS entropy each call | [mri_augmentation.py:87,135](../../src/data_preparation/mri_augmentation.py#L87) | Set a fixed seed if you need reproducible slice/rotation augmentation |
+| 13 | **Atlas constants baked in** — a fixed standardization target from the original `atlas_t1.nii` | [mri_standardize.py:74](../../src/data_preprocessing/mri_standardize.py#L74) | Independent of the registration template (the MNI152 fallback is fine); recompute only if you change the **standardization** source |
+| 14 | **Non-deterministic augmentation** — `random.seed(a=None)` reseeds from OS entropy each call | [mri_augmentation.py:92,135](../../src/data_preparation/mri_augmentation.py#L92) | Set a fixed seed if you need reproducible slice/rotation augmentation |
 
 ## README vs code: the stale steps
 
@@ -221,11 +220,11 @@ The repo `README.md` "Steps to Run Experiments" list is stale. The discrepancies
 | Step 8 "`cognitive_train.py`" | actual file is `cognitive_tests_train.py` | wrong filename |
 | Two steps numbered "8", then jumps to "10" | cognitive *and* ensemble both labeled 8 | mis-numbered list |
 | README order ends at MRI prepare | omits Step 5b (post-preproc metadata), Step 6 (`ensemble_preprocessing`), Step 7 (`ensemble_preparation` / DATASET split) | three real steps missing from the README |
-| No env / atlas / access notes | code needs the LONI DUA, `atlas_t1.nii`, and ~8 deps beyond `requirements.txt` | README understates setup |
+| No env / atlas / access notes | code needs the LONI DUA; the atlas is now optional (MNI152 fallback) and `requirements.txt` is complete | README understates setup |
 
 ## Condensed checklist
 
-1. ADNI/LONI access + DUA. Build env. Drop in `atlas_t1.nii`. ([Step 0](#step-0--access-environment-atlas))
+1. ADNI/LONI access + DUA. Build env (`uv venv --python 3.11 && uv pip install -r requirements.txt`). Atlas optional (MNI152 fallback). ([Step 0](#step-0--access-environment-atlas))
 2. Rebuild `ADNIMERGE.csv` from ADNIMERGE2 → `data/tabular/`. ([Step 1](#step-1--get-adnimergecsv-now-rebuild-from-adnimerge2))
 3. `cognitive_tests_preprocessing.py` → `COGNITIVE_DATA_PREPROCESSED.csv`. ([Step 2](#step-2--cognitive--tabular-preprocessing))
 4. `mri_selection.select_mris_to_download(...)` → `SELECTED_IMAGES_REFERENCE.csv`. ([Step 3a](#step-3a--mri-selection-produce-the-download-list))

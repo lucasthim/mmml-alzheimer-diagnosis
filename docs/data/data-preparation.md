@@ -38,7 +38,7 @@ Library stack (`requirements.txt`): `numpy`, `pandas`, `matplotlib`, `sklearn`, 
 
 ### 1.1 Axis convention — the single most important fact
 
-Both slicers document the same mapping ([mri_batch_preparation.py#L111](../../src/data_preparation/mri_batch_preparation.py#L111), [mri_augmentation.py#L148](../../src/data_preparation/mri_augmentation.py#L148)):
+Both slicers document the same mapping ([mri_batch_preparation.py#L111](../../src/data_preparation/mri_batch_preparation.py#L111), [mri_augmentation.py#L153](../../src/data_preparation/mri_augmentation.py#L153)):
 
 ```
 Axis orientation (of the ANTs→numpy array, BEFORE rotation):
@@ -47,7 +47,7 @@ Axis orientation (of the ANTs→numpy array, BEFORE rotation):
 2 - Axial
 ```
 
-But the code does **not** index those raw axes directly. The comment in every slicer ([mri_batch_preparation.py#L149](../../src/data_preparation/mri_batch_preparation.py#L149), [mri_augmentation.py#L146](../../src/data_preparation/mri_augmentation.py#L146)) explains why:
+But the code does **not** index those raw axes directly. The comment in every slicer ([mri_batch_preparation.py#L149](../../src/data_preparation/mri_batch_preparation.py#L149), [mri_augmentation.py#L151](../../src/data_preparation/mri_augmentation.py#L151)) explains why:
 
 > "Since ANTsImage to Numpy convertion makes the image lose the reference, we rotate it some times to the correct the axis visualization."
 
@@ -55,13 +55,13 @@ So each orientation first rotates the volume with `np.rot90(...)` to fix display
 
 | Orientation | Rotation applied | 2D slab taken | Source |
 |---|---|---|---|
-| `axial` | `np.rot90(img, k=3, axes=(0,1))` | `rot[:,:,i]` | [mri_batch_preparation.py#L152](../../src/data_preparation/mri_batch_preparation.py#L152); [mri_augmentation.py#L177](../../src/data_preparation/mri_augmentation.py#L177) |
-| `coronal` | `np.rot90(img, k=3, axes=(0,2))` | `rot[:,i,:]` | [mri_batch_preparation.py#L168](../../src/data_preparation/mri_batch_preparation.py#L168); [mri_augmentation.py#L173](../../src/data_preparation/mri_augmentation.py#L173) |
-| `sagittal` | `np.rot90(img, k=3, axes=(1,2))` then `np.rot90(rot, k=2, axes=(0,2))` | `rot[i,:,:]` | [mri_batch_preparation.py#L184](../../src/data_preparation/mri_batch_preparation.py#L184); [mri_augmentation.py#L168](../../src/data_preparation/mri_augmentation.py#L168) |
+| `axial` | `np.rot90(img, k=3, axes=(0,1))` | `rot[:,:,i]` | [mri_batch_preparation.py#L152](../../src/data_preparation/mri_batch_preparation.py#L152); [mri_augmentation.py#L182](../../src/data_preparation/mri_augmentation.py#L182) |
+| `coronal` | `np.rot90(img, k=3, axes=(0,2))` | `rot[:,i,:]` | [mri_batch_preparation.py#L168](../../src/data_preparation/mri_batch_preparation.py#L168); [mri_augmentation.py#L178](../../src/data_preparation/mri_augmentation.py#L178) |
+| `sagittal` | `np.rot90(img, k=3, axes=(1,2))` then `np.rot90(rot, k=2, axes=(0,2))` | `rot[i,:,:]` | [mri_batch_preparation.py#L184](../../src/data_preparation/mri_batch_preparation.py#L184); [mri_augmentation.py#L173](../../src/data_preparation/mri_augmentation.py#L173) |
 
 `'sagital'` (one t) is accepted as an alias in batch mode ([mri_batch_preparation.py#L134](../../src/data_preparation/mri_batch_preparation.py#L134)).
 
-Loading: `load_mri(path, as_ants=True)` returns an `ants.ANTsImage` ([base_mri.py#L64](../../src/utils/base_mri.py#L64)). `slice_image` (single-config path) calls `image_3d.numpy()` ([mri_augmentation.py#L167](../../src/data_preparation/mri_augmentation.py#L167)); `generate_slices` (batch path) calls `load_mri(...).numpy()` ([mri_batch_preparation.py#L132](../../src/data_preparation/mri_batch_preparation.py#L132)). A `.copy()` after each `np.rot90` materializes a contiguous array (`rot90` returns a view).
+Loading: `load_mri(path, as_ants=True)` returns an `ants.ANTsImage` ([base_mri.py#L69](../../src/utils/base_mri.py#L69)). `slice_image` (single-config path) calls `image_3d.numpy()` ([mri_augmentation.py#L172](../../src/data_preparation/mri_augmentation.py#L172)); `generate_slices` (batch path) calls `load_mri(...).numpy()` ([mri_batch_preparation.py#L132](../../src/data_preparation/mri_batch_preparation.py#L132)). A `.copy()` after each `np.rot90` materializes a contiguous array (`rot90` returns a view).
 
 ```mermaid
 flowchart LR
@@ -101,7 +101,7 @@ orientations = {
 **(C) [mri_metadata_preparation.py](../../src/data_preparation/mri_metadata_preparation.py) / [mri_dataset_generation.py](../../src/model_training/mri_dataset_generation.py) — reference-only, slices materialized at train time.**
 No images written. Picks `orientation_slice` plus `num_sampled_images` random neighbors within `sampling_range`, and tags `num_of_image_rotations` rotation angles per slice. Defaults ([mri_metadata_preparation.py#L17](../../src/data_preparation/mri_metadata_preparation.py#L17)): `orientation='coronal'`, `orientation_slice=50`, `num_sampled_images=5`, `sampling_range=3`, `num_of_image_rotations=3`.
 
-Slice index range note in all docstrings: "Values range from 0 to 100." A recurring TODO appears in 5+ docstrings: *"TODO: fix future bug if sampling_range is outside of the image"* (e.g. [mri_preparation.py#L50](../../src/data_preparation/mri_preparation.py#L50), [mri_augmentation.py#L34](../../src/data_preparation/mri_augmentation.py#L34)) — there is no bounds check on `slice ± sampling_range` against the volume size.
+Slice index range note in all docstrings: "Values range from 0 to 100." A recurring TODO appears in 5+ docstrings: *"TODO: fix future bug if sampling_range is outside of the image"* (e.g. [mri_preparation.py#L50](../../src/data_preparation/mri_preparation.py#L50), [mri_augmentation.py#L39](../../src/data_preparation/mri_augmentation.py#L39)) — there is no bounds check on `slice ± sampling_range` against the volume size.
 
 ### 1.3 Output array shape and dtype
 
@@ -111,15 +111,15 @@ Slice index range note in all docstrings: "Values range from 0 to 100." A recurr
 
 ### 1.4 File format and naming
 
-Everything is saved as **compressed numpy `.npz`** via `np.savez_compressed`, keyed under the default array name `'arr_0'`. `save_mri` ([base_mri.py#L32](../../src/utils/base_mri.py#L32)):
+Everything is saved as **compressed numpy `.npz`** via `np.savez_compressed`, keyed under the default array name `'arr_0'`. `save_mri` ([base_mri.py#L37](../../src/utils/base_mri.py#L37)):
 - `.npz` branch: `if type(image) is not np.ndarray: image = image.numpy()` then `np.savez_compressed(output_path/name.npz, image)`.
 - A `.nii.gz` branch also exists (writes ANTs Nifti) but the preparation calls always pass `file_format='.npz'`.
 
-Load mirror ([base_mri.py#L64](../../src/utils/base_mri.py#L64)): `np.load(path)['arr_0']`. `MRIDataset.__getitem__` reads exactly that `'arr_0'` key (`mri_dataset.py:46`).
+Load mirror ([base_mri.py#L69](../../src/utils/base_mri.py#L69)): `np.load(path)['arr_0']`. `MRIDataset.__getitem__` reads exactly that `'arr_0'` key (`mri_dataset.py:46`).
 
 **Naming — single-config path ([mri_preparation.py](../../src/data_preparation/mri_preparation.py)):** flat output dir, filename = `create_file_name_from_path(image_path)` (strips two extensions, e.g. `.nii.gz` → base, [utils.py#L68](../../src/utils/utils.py#L68)) plus:
 - no-aug: `..._{orientation}_{orientation_slice}.npz` (line 99), e.g. `<base>_coronal_50.npz`.
-- aug: `save_batch_mri` appends `_<dict_key>` where keys are `orientation_slice` and `orientation_slice_rot_<angle>` (e.g. `coronal_50`, `coronal_50_rot_-7`). Final form `<base>_coronal_50_rot_-7.npz` ([base_mri.py#L28](../../src/utils/base_mri.py#L28), [mri_augmentation.py#L91](../../src/data_preparation/mri_augmentation.py#L91)).
+- aug: `save_batch_mri` appends `_<dict_key>` where keys are `orientation_slice` and `orientation_slice_rot_<angle>` (e.g. `coronal_50`, `coronal_50_rot_-7`). Final form `<base>_coronal_50_rot_-7.npz` ([base_mri.py#L33](../../src/utils/base_mri.py#L33), [mri_augmentation.py#L96](../../src/data_preparation/mri_augmentation.py#L96)).
 
 **Naming — batch path ([mri_batch_preparation.py](../../src/data_preparation/mri_batch_preparation.py)):** per-image subfolders. Rule documented at [mri_batch_preparation.py#L199](../../src/data_preparation/mri_batch_preparation.py#L199):
 ```
@@ -140,18 +140,18 @@ slice_num = str(slice['SLICE']) if slice['SLICE'] < 10 else '0'+str(slice['SLICE
 
 Augmentation uses `scipy.ndimage.rotate` for in-plane 2D rotation. `nibabel`/`misc` are imported but unused.
 
-### 2.1 Rotation augmentation — `generate_augmented_slice` ([mri_augmentation.py#L65](../../src/data_preparation/mri_augmentation.py#L65))
+### 2.1 Rotation augmentation — `generate_augmented_slice` ([mri_augmentation.py#L70](../../src/data_preparation/mri_augmentation.py#L70))
 - Rotation angles sampled from `list(np.arange(-15,16,2))` = `[-15,-13,...,13,15]` (16 candidate angles), via `random.sample(..., k=num_of_rotations)` with `num_of_rotations=3` default.
 - `random.seed(a=None, version=2)` → reseeded from OS entropy each call, so rotations are **non-deterministic** (line 87).
 - `ndimage.rotate(image_2d, sample, reshape=False)` keeps the original shape (line 97).
 - Returns a dict: key `<orientation>_<slice>` → original 2D image, plus `<orientation>_<slice>_rot_<angle>` → each rotated copy.
 - Lines 101-111 are commented-out dead code (an earlier version with a copy/paste bug — all three keys used `samples[0]`).
 
-### 2.2 Neighborhood slice sampling — `sample_from_neighborhood` ([mri_augmentation.py#L114](../../src/data_preparation/mri_augmentation.py#L114))
+### 2.2 Neighborhood slice sampling — `sample_from_neighborhood` ([mri_augmentation.py#L119](../../src/data_preparation/mri_augmentation.py#L119))
 - Candidate slices = `set(range(slice-sampling_range, slice+sampling_range+1)) - {slice}` (the `2*sampling_range` neighbors, excluding the center).
 - `random.sample(neighbor_samples, k=num_augmented_images)` — again `random.seed(a=None, ...)`, **non-deterministic**.
 
-### 2.3 Top-level — `generate_augmented_images` ([mri_augmentation.py#L10](../../src/data_preparation/mri_augmentation.py#L10))
+### 2.3 Top-level — `generate_augmented_images` ([mri_augmentation.py#L15](../../src/data_preparation/mri_augmentation.py#L15))
 Pipeline: slice the center → augment it with rotations → if `augmentation_type=='neighborhood_sampling'`, also slice each sampled neighbor and rotate it. Returns the merged dict. Returns `None` (skipped) if the center slice is all-zeros (`image_2d is None` from `slice_image`... but note `slice_image` never actually returns `None`; the all-zero guard lives in the callers via `check_mri_integrity`, see §5).
 
 ### 2.4 Metadata-level augmentation (no images) — [mri_metadata_preparation.py](../../src/data_preparation/mri_metadata_preparation.py)
@@ -244,7 +244,7 @@ Every MRI-preparation entry point removes images whose MRI label and cognitive l
 - [mri_batch_preparation.py#L55](../../src/data_preparation/mri_batch_preparation.py#L55) and [mri_metadata_preparation.py#L60](../../src/data_preparation/mri_metadata_preparation.py#L60): same idea, building `IMAGE_DATA_ID = 'I'+str(IMAGEUID)` on the ensemble side first.
 
 All-zero / invalid image skipping:
-- `check_mri_integrity(image) → image.sum().sum().sum() > 0` ([base_mri.py#L83](../../src/utils/base_mri.py#L83)); used by [mri_preparation.py#L86](../../src/data_preparation/mri_preparation.py#L86).
+- `check_mri_integrity(image) → image.sum().sum().sum() > 0` ([base_mri.py#L88](../../src/utils/base_mri.py#L88)); used by [mri_preparation.py#L86](../../src/data_preparation/mri_preparation.py#L86).
 - `validate_slice(image)` ([mri_batch_preparation.py#L219](../../src/data_preparation/mri_batch_preparation.py#L219)): NaN→`nanmin`, returns `False` if the slice sums to zero. Invalid slices are *not* saved and `VALID_IMAGE=False` is recorded.
 
 ---

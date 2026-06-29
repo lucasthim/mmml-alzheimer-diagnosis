@@ -14,12 +14,13 @@ import tensorflow as tf
 from deepbrain import Extractor
 import ants
 
+
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and errors from TF. Need to use it carefully
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
-from utils import *
-from base_mri import *
+from utils import create_reference_table, list_available_images, create_file_name_from_path
+from base_mri import check_mri_integrity, save_mri, load_mri, set_env_variables
 from deepbrain_skull_strip import deep_brain_skull_stripping
 from antspy_registration import register_image_with_atlas
 from mri_crop import crop_mri_at_center

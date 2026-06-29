@@ -19,7 +19,7 @@ As a result, several path roots coexist depending on each module's vintage:
 | `/content/gdrive/MyDrive/Lucas_Thimoteo/models/` | [mri_train_online.py#L41](../../src/model_training/mri_train_online.py#L41), saved `.pth` in a notebook | Trained CNN weights. |
 | `/content/gdrive/MyDrive/Lucas_Thimoteo/mmml-alzheimer-diagnosis/models/` | [mri_train_online.py#L41](../../src/model_training/mri_train_online.py#L41) (default arg) | Same nested inconsistency as the data root. |
 | `./../../data/` (relative) | [cognitive_tests_train.py#L122](../../src/model_training/cognitive_tests_train.py#L122) and commented blocks | Local-run variants, relative to `src/<pkg>/`. Used in the PyCaret experiment script. |
-| `/home/lucasthim1/...` | [utils.py#L71](../../src/utils/utils.py#L71), [base_mri.py#L78](../../src/utils/base_mri.py#L78), docstrings | Earliest layout, on a Linux box (`/home/lucasthim1/mmml-alzheimer-diagnosis/data/...`). Superseded by the Drive paths but still present in defaults and docstrings. |
+| `/home/lucasthim1/...` | [utils.py#L71](../../src/utils/utils.py#L71), [base_mri.py#L83](../../src/utils/base_mri.py#L83), docstrings | Earliest layout, on a Linux box (`/home/lucasthim1/mmml-alzheimer-diagnosis/data/...`). Superseded by the Drive paths but still present in defaults and docstrings. |
 
 **The practical upshot for re-running after a hiatus:** there is no single variable to change. You must grep for these root strings and update them per module. The nested-vs-flat `data/` split (see [known-issues.md](../reference/known-issues.md)) means MRI preprocessing output may need to be moved before downstream steps can find it.
 
@@ -139,8 +139,8 @@ flowchart TD
 
 The read/write helpers live in [base_mri.py](../../src/utils/base_mri.py) and [utils.py](../../src/utils/utils.py):
 
-- `save_mri(image, name, output_path, file_format='.npz', ...)` — `.npz` is written via `np.savez_compressed(output_path/name.npz, image)` (default array key `'arr_0'`); `.nii.gz` via `ants.from_numpy(...).to_file(...)` ([base_mri.py#L50](../../src/utils/base_mri.py#L50)).
-- `load_mri(path)` — `.npz` → `np.load(path)['arr_0']`; otherwise `ants.image_read(path)` ([base_mri.py#L64](../../src/utils/base_mri.py#L64)).
+- `save_mri(image, name, output_path, file_format='.npz', ...)` — `.npz` is written via `np.savez_compressed(output_path/name.npz, image)` (default array key `'arr_0'`); `.nii.gz` via `ants.from_numpy(...).to_file(...)` ([base_mri.py#L55](../../src/utils/base_mri.py#L55)).
+- `load_mri(path)` — `.npz` → `np.load(path)['arr_0']`; otherwise `ants.image_read(path)` ([base_mri.py#L69](../../src/utils/base_mri.py#L69)).
 - `create_file_name_from_path(path)` strips **two** extensions to handle `.nii.gz`: `os.path.splitext(os.path.splitext(basename)[0])[0]` ([utils.py#L68](../../src/utils/utils.py#L68)).
 - `list_available_images(input_dir, file_format='.nii')` uses `Path(input_dir).rglob("*"+file_format)` and excludes anything matching `*[Mm]ask*` ([utils.py#L34](../../src/utils/utils.py#L34)).
 
@@ -162,11 +162,11 @@ ID parsing happens in `create_image_references` ([utils.py#L140](../../src/utils
 
 [mri_preprocessing.py](../../src/data_preprocessing/mri_preprocessing.py) runs `execute_preprocessing` ([#L86](../../src/data_preprocessing/mri_preprocessing.py#L86)) in this order. Full details in [mri-preprocessing.md](mri-preprocessing.md).
 
-1. **Standardize** — `clip_and_normalize_mri` clips to the 0.02/99.8 percentiles, then linearly scales to the atlas intensity range. Atlas thresholds are **hardcoded**: `get_atlas_thresholds()` returns `(0.05545412003993988, 92.05744171142578)` ([mri_standardize.py#L69](../../src/data_preprocessing/mri_standardize.py#L69)).
-2. **Register to atlas** — `register_image_with_atlas` ([antspy_registration.py#L10](../../src/data_preprocessing/antspy_registration.py#L10)), `ATLAS_PATH = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/atlas/atlas_t1.nii'`, `type_of_transform='Affine'`, `grad_step=0.1`.
+1. **Standardize** — `clip_and_normalize_mri` clips to the 0.02/99.8 percentiles, then linearly scales to the atlas intensity range. Atlas thresholds are **hardcoded**: `get_atlas_thresholds()` returns `(0.05545412003993988, 92.05744171142578)` ([mri_standardize.py#L74](../../src/data_preprocessing/mri_standardize.py#L74)).
+2. **Register to atlas** — `register_image_with_atlas` ([antspy_registration.py#L35](../../src/data_preprocessing/antspy_registration.py#L35)), `ATLAS_PATH = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/atlas/atlas_t1.nii'`, `type_of_transform='Affine'`, `grad_step=0.1`.
 3. **Skull strip** — DeepBrain 3D U-Net `Extractor` at `probability=0.5` ([deepbrain_skull_strip.py#L49](../../src/data_preprocessing/deepbrain_skull_strip.py#L49)).
 4. **Crop at center** — `crop_mri_at_center(box=100)` → **100×100×100** ([mri_preprocessing.py#L107](../../src/data_preprocessing/mri_preprocessing.py#L107)).
-5. **Integrity check** — `check_mri_integrity` keeps the image only if `sum > 0` ([base_mri.py#L83](../../src/utils/base_mri.py#L83)).
+5. **Integrity check** — `check_mri_integrity` keeps the image only if `sum > 0` ([base_mri.py#L88](../../src/utils/base_mri.py#L88)).
 
 Output of this stage:
 
@@ -175,7 +175,7 @@ Output of this stage:
 - **Dir:** one dated folder per run, e.g. `data/mri/preprocessed/20211002/`.
 - A `REFERENCE.csv` is written into that folder by `generate_metadata_for_preprocessed_images` ([mri_preprocessing.py#L120](../../src/data_preprocessing/mri_preprocessing.py#L120) → `create_reference_table`, [utils.py#L92](../../src/utils/utils.py#L92)).
 
-Note that `set_env_variables()` hardcodes ANTs/NiftyReg install paths from the old Linux box: `ANTSPATH=/home/lucasthim1/ants/ants_install/bin`, `NIFTYREG_INSTALL=/home/lucasthim1/niftyreg/niftyreg_install` ([base_mri.py#L78](../../src/utils/base_mri.py#L78)).
+Note that `set_env_variables()` hardcodes ANTs/NiftyReg install paths from the old Linux box: `ANTSPATH=/home/lucasthim1/ants/ants_install/bin`, `NIFTYREG_INSTALL=/home/lucasthim1/niftyreg/niftyreg_install` ([base_mri.py#L83](../../src/utils/base_mri.py#L83)).
 
 #### Per-folder `REFERENCE.csv` schema
 
@@ -205,7 +205,7 @@ There are **two implementations** with different on-disk layouts. See [data-prep
 
 - Loads `PREPROCESSED_MRI_REFERENCE.csv` + `PREPROCESSED_ENSEMBLE_REFERENCE.csv`, filters out `CONFLICT_DIAGNOSIS == True` images ([#L65](../../src/data_preparation/mri_preparation.py#L65)).
 - For each 3D `.nii.gz`: `slice_image(image_3d, orientation, slice)` → optional augmentation → `.npz` ([#L93](../../src/data_preparation/mri_preparation.py#L93)).
-- **Name:** `<original_stem>_<orientation>_<slice>.npz` (no augmentation, [#L99](../../src/data_preparation/mri_preparation.py#L99)) or `<original_stem>_<orientation>_<slice>[_rot_<angle>].npz` via `save_batch_mri`, with keys like `coronal_50`, `coronal_50_rot_-3` from `mri_augmentation.generate_augmented_slice` ([mri_augmentation.py#L91](../../src/data_preparation/mri_augmentation.py#L91)).
+- **Name:** `<original_stem>_<orientation>_<slice>.npz` (no augmentation, [#L99](../../src/data_preparation/mri_preparation.py#L99)) or `<original_stem>_<orientation>_<slice>[_rot_<angle>].npz` via `save_batch_mri`, with keys like `coronal_50`, `coronal_50_rot_-3` from `mri_augmentation.generate_augmented_slice` ([mri_augmentation.py#L96](../../src/data_preparation/mri_augmentation.py#L96)).
 - Writes `<output>/REFERENCE.csv` ([#L137](../../src/data_preparation/mri_preparation.py#L137)).
 
 **(b) Per-subject "storage" output — [mri_batch_preparation.py](../../src/data_preparation/mri_batch_preparation.py)**
