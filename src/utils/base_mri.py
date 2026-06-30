@@ -69,12 +69,26 @@ def save_mri(image:Union[np.ndarray, ants.ANTsImage],name:str = None,output_path
 def load_mri(path:str,as_ants=False):
     '''
     Load image from path as an ANTsImage or numpy compressed array.
+
+    Accepts three inputs:
+      - .npz  -> compressed numpy array (the pipeline's intermediate format)
+      - .nii / .nii.gz -> single-file volume via ants.image_read
+      - a DICOM series -> a directory of .dcm slices (or a path to one .dcm
+        inside it); reassembled into one 3D ANTsImage via ants.dicom_read.
     '''
-    
+
     if path.endswith(".npz"):
         img= np.load(path)['arr_0']
         if as_ants: img = ants.from_numpy(img)
         return img
+
+    # DICOM: ADNI stores one scan as many .dcm slices in an I<id> folder.
+    # Read the whole folder as a single 3D volume.
+    if os.path.isdir(path):
+        return ants.dicom_read(path)
+    if path.lower().endswith(".dcm"):
+        return ants.dicom_read(os.path.dirname(path))
+
     return ants.image_read(path)
 
 def set_env_variables():
