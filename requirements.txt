@@ -1,5 +1,5 @@
 # Core
-numpy
+numpy<2          # TF 2.x / scipy / pandas wheels are built against the NumPy 1.x ABI; numpy 2.x crashes them
 pandas
 matplotlib
 scipy
@@ -15,7 +15,11 @@ captum
 antspyx
 nibabel
 deepbrain @ git+https://github.com/lucasthim/deepbrain.git   # TF1.x->compat.v1 patch for TF2; needs TensorFlow
-tensorflow
+tensorflow ; sys_platform != 'linux'              # macOS/other: plain wheel
+tensorflow[and-cuda] ; sys_platform == 'linux'    # Linux GPU box (RTX 4090): bundles CUDA/cuDNN userspace libs for GPU
+# Linux GPU: after install, run `bash scripts/setup_gpu_linux.sh`. The venv gets both cu12
+# and cu13 NVIDIA wheels, and TF 2.21 needs cu12 libcusolver.so.11 preloaded or it runs on
+# CPU. The script installs that preload and verifies the GPU. Not needed on macOS.
 
 # Tabular modeling + ensemble explainability
 pycaret==3.3.2   # 3.3.2 pins sklearn<1.5 (needs _print_elapsed_time); 2.x/3.3.0 break on modern sklearn

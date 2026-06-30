@@ -8,6 +8,14 @@ import datetime
 
 import numpy as np
 import nibabel as nib
+# Linux GPU fix: preload cu12 libcusolver.so.11 before TF imports (no-op off Linux).
+# See src/_cuda_preload.py.
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+try:
+    from _cuda_preload import preload_cusolver
+    preload_cusolver()
+except Exception:
+    pass
 # Import TensorFlow/deepbrain before ants (ITK): both ship an OpenMP runtime and, on macOS,
 # if ITK's initializes first, TF's session.run deadlocks during skull stripping.
 import tensorflow as tf

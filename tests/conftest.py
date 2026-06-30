@@ -5,8 +5,20 @@ imports are all absolute) can be imported directly, and silences TensorFlow's st
 logging so test output stays readable.
 """
 import os
+import sys
+from pathlib import Path
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # errors only; quiets TF startup noise
+
+# Linux GPU fix: preload cu12 libcusolver.so.11 before TF imports, else TF 2.21 can't
+# find it and silently falls back to CPU. No-op off Linux. See src/_cuda_preload.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+try:
+    from _cuda_preload import preload_cusolver  # noqa: E402
+
+    preload_cusolver()
+except Exception:
+    pass
 
 # TensorFlow MUST be imported before ants (ITK). Both ship an OpenMP runtime, and on
 # macOS, if ITK's loads first, TF's session.run deadlocks. Importing TF here in conftest

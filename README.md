@@ -14,6 +14,44 @@ We integrate each data type through separate preprocessing and machine learning 
 We provide explanations for predictions at patient level (local explanations) and at the population level (global explanation).
 
 
+## Environment Setup
+
+Single [uv](https://docs.astral.sh/uv/) venv on Python 3.11, built from `requirements.txt`.
+
+```bash
+# install uv if missing
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# from the repo root
+uv venv --python 3.11
+uv pip install -r requirements.txt        # needs git + GitHub access (deepbrain is a fork)
+```
+
+**Linux GPU box (e.g. RTX 4090 / Ada) — one extra step:**
+
+```bash
+bash scripts/setup_gpu_linux.sh
+```
+
+`requirements.txt` already installs `tensorflow[and-cuda]` on Linux, but the venv ends up
+with both cu12 and cu13 NVIDIA wheels and TensorFlow 2.21 needs the cu12 `libcusolver.so.11`
+preloaded or it silently falls back to CPU. `setup_gpu_linux.sh` installs that preload and
+verifies both PyTorch and TF see the GPU. **Skip it on macOS** — not needed there.
+
+Verify the GPU at any time:
+
+```bash
+uv run python -c "import torch; print('torch CUDA:', torch.cuda.is_available())"
+uv run python -c "import tensorflow as tf; print('TF GPUs:', tf.config.list_physical_devices('GPU'))"
+uv run pytest tests/   # smoke-tests skull stripping on a synthetic dummy volume
+```
+
+If `TF GPUs:` is empty on Linux, re-run `bash scripts/setup_gpu_linux.sh` and check
+`nvidia-smi` reports a recent driver/CUDA (12.x+ for Ada).
+
+> **Gotcha:** TensorFlow must be imported *before* `ants` in any process, or TF's
+> `session.run` deadlocks during skull stripping (both ship an OpenMP runtime). The library
+> modules already enforce this — replicate it in any new notebook/script.
 
 
 ## Steps to Run Experiments:

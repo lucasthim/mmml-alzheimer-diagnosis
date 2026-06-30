@@ -5,9 +5,18 @@ import argparse
 import time
 
 import numpy as np
-import tensorflow as tf
 
 import sys
+# Linux GPU fix: preload cu12 libcusolver.so.11 before TF imports (no-op off Linux).
+# See src/_cuda_preload.py.
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+try:
+    from _cuda_preload import preload_cusolver
+    preload_cusolver()
+except Exception:
+    pass
+import tensorflow as tf
+
 sys.path.append("./../utils")
 from base_mri import *
 from utils import *
