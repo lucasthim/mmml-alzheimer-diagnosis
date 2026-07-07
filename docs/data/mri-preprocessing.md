@@ -289,35 +289,52 @@ Logic: `pd.read_csv(cognitive).dropna().query("IMAGEUID != 999999 and DIAGNOSIS 
 
 > **Fixed (2026):** both former bugs are resolved. `filter_images(df_cog, existing_reference_path)` ([L35](../../src/data_preprocessing/mri_selection.py#L35)) now takes the frame and returns the filtered result, so the "subtract already-downloaded images" branch works. The `__main__`/argparse block ([L76](../../src/data_preprocessing/mri_selection.py#L76)) runs as a normal CLI — it reads the correct `args.cognitive` dest and `--classes` is `type=int, nargs='+'` (e.g. `-cl 0 1`). Run `python src/data_preprocessing/mri_selection.py` from the repo root. See [known-issues.md](../reference/known-issues.md).
 
-### `ensemble_preprocessing.py` — join tabular + MRI
+### `ensemble_preprocessing.py` — build the ensemble reference from cognitive data (2026 rewrite)
 
-Produces the master table pairing each MRI with its cognitive/demographic record and a single agreed diagnosis label.
+Produces the master ensemble reference: cognitive/demographic records restricted to visits
+that have a real MRI id, in the requested class pair.
+
+> **2026 rewrite.** This module was rewritten for the single-source ADNIMERGE. The 2026
+> ADNIMERGE carries the image code (`IMAGEUID`) and the diagnosis (`DX`) in one table, so
+> `COGNITIVE_DATA_PREPROCESSED.csv` is sufficient on its own. The old design merged a
+> **separately downloaded** MRI metadata table and reconciled its `GROUP` label against the
+> cognitive `DX`; there is no second diagnosis source anymore, so that merge and the whole
+> conflict/dedup machinery were removed. The **(pre-2026)** behavior is preserved at the end
+> of this section for provenance.
 
 | | |
 |---|---|
-| **Inputs** | `COGNITIVE_DATA_PREPROCESSED.csv` (`preprocessed_cognitive_data_path`) and `PREPROCESSED_MRI_REFERENCE.csv` (`preprocessed_mri_raw_data_path`). Defaults set in `__main__` ([L66](../../src/data_preprocessing/ensemble_preprocessing.py#L66)-L67). |
-| **Output** | `PREPROCESSED_ENSEMBLE_REFERENCE.csv` (`ensemble_data_output_path`, default `data/tabular/...`, [L69](../../src/data_preprocessing/ensemble_preprocessing.py#L69)). |
-| **Entry point** | `execute_ensemble_preprocessing(preprocessed_cognitive_data_path, preprocessed_mri_raw_data_path, ensemble_data_output_path, classes=[1,0])` ([L5](../../src/data_preprocessing/ensemble_preprocessing.py#L5)). CLI is sound. |
+| **Inputs** | `COGNITIVE_DATA_PREPROCESSED.csv` (`--cognitive`, default `data/tabular/COGNITIVE_DATA_PREPROCESSED.csv`). Optional `DOWNLOAD_RAW_MRI.csv` (`--downloaded-mri-reference`) to add the on-disk flag. |
+| **Output** | `PREPROCESSED_ENSEMBLE_REFERENCE.csv` (`--output`, default `data/tabular/...`). |
+| **Entry point** | `execute_ensemble_preprocessing(preprocessed_cognitive_data_path, ensemble_data_output_path, classes=[0,1], downloaded_mri_reference_path=None)`. |
 
 ```mermaid
 flowchart LR
-    COG["COGNITIVE_DATA_PREPROCESSED.csv"] --> J
-    MRI["PREPROCESSED_MRI_REFERENCE.csv"] --> R["rename IMAGE_DATA_ID→IMAGEUID<br/>strip 'I', cast int64"]
-    R --> D["dedup on SUBJECT, IMAGEUID"]
-    D --> J["merge on (SUBJECT, IMAGEUID)"]
-    J --> C["remove_conflicting_diagnosis<br/>DIAGNOSIS vs MACRO_GROUP<br/>+ CONFLICT_DIAGNOSIS flag"]
-    C --> V["drop blacklist<br/>[293688, 274525, 280596]"]
+    COG["COGNITIVE_DATA_PREPROCESSED.csv"] --> DR["dropna + query IMAGEUID != 999999"]
+    DR --> M["MACRO_GROUP = DIAGNOSIS<br/>CONFLICT_DIAGNOSIS = False"]
+    M --> V["drop blacklist<br/>[293688, 274525, 280596]"]
     V --> F["filter MACRO_GROUP in classes"]
-    F --> OUT["PREPROCESSED_ENSEMBLE_REFERENCE.csv"]
+    F --> H["(optional) HAS_PREPROCESSED_MRI<br/>from DOWNLOAD_RAW_MRI.csv"]
+    H --> OUT["PREPROCESSED_ENSEMBLE_REFERENCE.csv"]
 ```
 
-Logic ([L21](../../src/data_preprocessing/ensemble_preprocessing.py#L21)-L43): load cognitive with `.dropna().query("IMAGEUID != 999999")`; load the MRI reference, rename `IMAGE_DATA_ID`→`IMAGEUID`, strip the leading `I` and cast to int64 so the two keys are comparable ([L23](../../src/data_preprocessing/ensemble_preprocessing.py#L23)-L25); dedup MRI rows on `['SUBJECT','IMAGEUID']`; merge cognitive × MRI on `['SUBJECT','IMAGEUID']`, pulling MRI columns `SUBJECT, IMAGEUID, GROUP, MACRO_GROUP, VISIT, ACQ_DATE` ([L32](../../src/data_preprocessing/ensemble_preprocessing.py#L32)); map any remaining string `MACRO_GROUP` via `{'AD':1,'CN':0,'MCI':2}` ([L33](../../src/data_preprocessing/ensemble_preprocessing.py#L33)-L34). Then:
+Logic: load cognitive with `.dropna().query("IMAGEUID != 999999")`; set `MACRO_GROUP = DIAGNOSIS`
+and `CONFLICT_DIAGNOSIS = False` (both kept so the downstream contract still holds); drop the
+hardcoded missing-axial-validation blacklist **`[293688, 274525, 280596]`** via
+`remove_missing_mris_in_validation`; filter to `MACRO_GROUP in @classes` (default `[0,1]` = CN & AD);
+and, when `--downloaded-mri-reference` is given, add a boolean `HAS_PREPROCESSED_MRI` (True where
+`IMAGEUID` matches a downloaded scan). Rows are **not** filtered on that flag.
 
-- **`remove_conflicting_diagnosis`** ([L54](../../src/data_preprocessing/ensemble_preprocessing.py#L54)-L59): compares the cognitive `DIAGNOSIS` to the MRI `MACRO_GROUP`, adds a boolean `CONFLICT_DIAGNOSIS` column, and drops rows where they disagree. (Downstream `mri_metadata_preparation.py` reads this column to exclude invalid images.)
-- **`remove_missing_mris_in_validation`** ([L61](../../src/data_preprocessing/ensemble_preprocessing.py#L61)-L63): hardcoded blacklist of 3 IMAGEUIDs whose axial MRI was missing in validation — **`[293688, 274525, 280596]`** — dropped.
-- Filter to `MACRO_GROUP in @classes` (default `[1,0]` = AD & CN; `__main__` overrides to `[0,1]`), save `index=False`, return `(df_ensemble, df_cog, df_mri)`.
+The ensemble reference carries all surviving cognitive columns + `MACRO_GROUP` (= `DIAGNOSIS`) +
+`CONFLICT_DIAGNOSIS` (always `False`) + optional `HAS_PREPROCESSED_MRI`, keyed on
+`(SUBJECT, IMAGEUID)`. Downstream `ensemble_preparation.py` adds the `DATASET` (train/val/test)
+split and reconstructs `IMAGE_DATA_ID = 'I'+str(IMAGEUID)`.
 
-The ensemble reference carries all surviving cognitive columns + MRI-side `GROUP, MACRO_GROUP, VISIT, ACQ_DATE` + `CONFLICT_DIAGNOSIS`, keyed on `(SUBJECT, IMAGEUID)`. Downstream `mri_metadata_preparation.py` ([data-preparation.md](data-preparation.md)) also expects a `DATASET` (train/val/test) column and reconstructs `IMAGE_DATA_ID = 'I'+str(IMAGEUID)`; `DATASET` is **not** produced here — it must be added by a later split step **(inferred)**.
+**(pre-2026) behavior** — for provenance; no longer in the code:
+- Loaded `PREPROCESSED_MRI_REFERENCE.csv`, renamed `IMAGE_DATA_ID`→`IMAGEUID`, stripped the leading `I`, cast int64, deduped on `['SUBJECT','IMAGEUID']`.
+- Merged cognitive × MRI on `['SUBJECT','IMAGEUID']`, pulling MRI columns `SUBJECT, IMAGEUID, GROUP, MACRO_GROUP, VISIT, ACQ_DATE`; mapped the string `MACRO_GROUP` via `{'AD':1,'CN':0,'MCI':2}`.
+- `remove_conflicting_diagnosis` compared cognitive `DIAGNOSIS` to MRI `MACRO_GROUP`, set `CONFLICT_DIAGNOSIS = True` on disagreement, and dropped those rows.
+- Signature was `execute_ensemble_preprocessing(preprocessed_cognitive_data_path, preprocessed_mri_raw_data_path, ensemble_data_output_path, classes=[1,0])` and it returned `(df_ensemble, df_cog, df_mri)`.
 
 ### `mri_label.py` — entirely dead
 
@@ -331,9 +348,9 @@ Empty (0 bytes). [src/data_preprocessing/](../../src/data_preprocessing) is a pa
 
 ## Cross-cutting gotchas
 
-- **Two diagnosis encodings, consistent.** Both tabular (`DIAGNOSIS`) and MRI (`MACRO_GROUP`) use `CN=0, AD=1, MCI=2`. Default class selection is AD vs CN (`[0,1]`/`[1,0]`) — the binary task; MCI (=2) is normally excluded.
-- **The `999999` sentinel** for "no MRI this visit" appears in three modules ([cognitive_tests_preprocessing.py#L97](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L97), [mri_selection.py#L18](../../src/data_preprocessing/mri_selection.py#L18), [ensemble_preprocessing.py#L22](../../src/data_preprocessing/ensemble_preprocessing.py#L22)).
-- **`IMAGEUID` vs `IMAGE_DATA_ID`.** Cognitive side uses integer `IMAGEUID`; MRI metadata uses string `IMAGE_DATA_ID` like `I261073`. Bridged by `str.replace('I','').astype(np.int64)` ([mri_selection.py#L37](../../src/data_preprocessing/mri_selection.py#L37), [ensemble_preprocessing.py#L25](../../src/data_preprocessing/ensemble_preprocessing.py#L25)).
+- **Diagnosis encoding.** Tabular `DIAGNOSIS` uses `CN=0, AD=1, MCI=2`; in 2026 `MACRO_GROUP` is a copy of it. Default class selection is CN vs AD (`[0,1]`) — the binary task; MCI (=2) is normally excluded.
+- **The `999999` sentinel** for "no MRI this visit" appears in three modules ([cognitive_tests_preprocessing.py#L97](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L97), [mri_selection.py#L18](../../src/data_preprocessing/mri_selection.py#L18), and the `query("IMAGEUID != 999999")` in [ensemble_preprocessing.py](../../src/data_preprocessing/ensemble_preprocessing.py)).
+- **`IMAGEUID` vs `IMAGE_DATA_ID`.** Cognitive side uses integer `IMAGEUID`; MRI metadata uses string `IMAGE_DATA_ID` like `I261073`. Bridged by `str.replace('I','').astype(np.int64)` ([mri_selection.py#L37](../../src/data_preprocessing/mri_selection.py#L37)); in 2026 `ensemble_preprocessing.py` uses the same bridge only for the optional `HAS_PREPROCESSED_MRI` flag.
 - **The `_I<id>` filename token** is the single thread linking a `.nii`/`.nii.gz` file back to its metadata row, parsed in `create_image_references`.
 - **Dead `data_extraction` package.** Notebook [05_Align_Ensemble_Data.ipynb](../../notebooks/mri_preprocessing/05_Align_Ensemble_Data%20.ipynb) imports `src.data_extraction.mri_reference_concat`, which does not exist; that functionality now lives in `mri_metadata_preprocessing.py`.
 

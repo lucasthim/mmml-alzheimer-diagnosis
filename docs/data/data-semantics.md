@@ -26,10 +26,18 @@ flowchart TD
     D["PROCESSED_ENSEMBLE_REFERENCE.csv<br/>(+ DATASET split, rebuilt IMAGE_DATA_ID)"]
     E["ensemble feature table<br/>(in-memory; 1 row per image, indexed by IMAGE_DATA_ID)"]
     A -->|"cognitive_tests_preprocessing.py<br/>select ~34 cols, rename, encode"| B
-    B -->|"ensemble_preprocessing.py<br/>merge with MRI metadata on SUBJECT + IMAGEUID"| C
+    B -->|"ensemble_preprocessing.py (2026)<br/>drop no-MRI rows, MACRO_GROUP = DIAGNOSIS"| C
     C -->|"ensemble_preparation.py<br/>add DATASET, rebuild IMAGE_DATA_ID"| D
     D -->|"ensemble_train.prepare_ensemble_experiment_set<br/>pivot CNN scores wide + join COGTEST_SCORE"| E
 ```
+
+> **2026 change — single diagnosis source.** `ensemble_preprocessing.py` was rewritten
+> because the 2026 ADNIMERGE carries the image code (`IMAGEUID`) and the diagnosis (`DX`)
+> in one table. It no longer merges a separately-downloaded MRI metadata table, so there
+> is no longer an independent MRI `GROUP` label to reconcile. `MACRO_GROUP` is now set
+> equal to `DIAGNOSIS`, and `CONFLICT_DIAGNOSIS` is `False` for every row (the column is
+> kept so downstream filters still run). The historical two-source behavior is described
+> below and marked **(pre-2026)** where it no longer matches the code.
 
 **Three label columns appear in this flow and must not be confused:**
 
@@ -37,7 +45,7 @@ flowchart TD
 |---|---|---|---|
 | `DIAGNOSIS` | cognitive / ADNIMERGE | `DX` | numeric 0/1/2 |
 | `DIAGNOSIS_BASELINE` | cognitive / ADNIMERGE | `DX_bl` | **string** CN/MCI/AD (never encoded) |
-| `MACRO_GROUP` | MRI metadata | MRI `GROUP` field | string on the MRI side; numeric 0/1/2 after the ensemble merge |
+| `MACRO_GROUP` | cognitive / ADNIMERGE (2026) | now copied from `DIAGNOSIS` | numeric 0/1/2. **(pre-2026:** derived from the MRI `GROUP` field.) |
 
 The full per-table schema, encodings, and label scheme follow.
 
@@ -149,7 +157,7 @@ A few subtleties worth flagging:
 
 When a visit has no MRI, ADNIMERGE leaves `IMAGEUID` blank. The code fills it with `999999` and casts to int ([#L97](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L97)) so the column stays integer-typed. `999999` therefore means **"this visit has no associated MRI"** and is filtered out wherever the tabular table is joined to images:
 - [mri_selection.py#L18](../../src/data_preprocessing/mri_selection.py#L18) — `query("IMAGEUID != 999999 ...")`
-- [ensemble_preprocessing.py#L22](../../src/data_preprocessing/ensemble_preprocessing.py#L22) — `query("IMAGEUID != 999999")`
+- [ensemble_preprocessing.py#L53](../../src/data_preprocessing/ensemble_preprocessing.py#L53) — `query("IMAGEUID != 999999")`
 
 ### Final column list (default run, `exclude_ecog_tests=True`)
 
@@ -170,7 +178,15 @@ That is **34 columns**. If `exclude_ecog_tests=False`, add `LDELTOTAL`, `DIGITSC
 
 ## The diagnostic-label scheme, end to end
 
-There are two independent label sources — cognitive (`DX`) vs MRI metadata (`GROUP`) — that are reconciled at the ensemble merge. Both use the **same 3-class taxonomy and the same numeric encoding**.
+In the current (2026) pipeline there is **one** diagnosis source — the cognitive `DX` from
+ADNIMERGE. `MACRO_GROUP` is set equal to `DIAGNOSIS` in `ensemble_preprocessing.py`, so the
+two label columns are identical by construction.
+
+**(pre-2026)** The pipeline originally had *two* independent label sources — cognitive (`DX`)
+vs MRI metadata (`GROUP`) — reconciled at the ensemble merge. Both used the **same 3-class
+taxonomy and the same numeric encoding**. The MRI-side collapse (`GROUP → MACRO_GROUP`) still
+lives in `load_reference_table` ([utils.py#L82](../../src/utils/utils.py#L82)) and is used
+when reading MRI metadata elsewhere, but it no longer feeds the ensemble reference.
 
 ### Raw vocab → 3-class macro taxonomy
 
@@ -194,20 +210,21 @@ Both sides reduce to exactly **`CN`, `MCI`, `AD`**.
 
 ### The numeric encoding (the canonical table)
 
-| Class | Clinical meaning | `DIAGNOSIS` (cog) | `MACRO_GROUP` (MRI, post-merge) | MRI-CNN binary target |
+| Class | Clinical meaning | `DIAGNOSIS` (cog) | `MACRO_GROUP` (= `DIAGNOSIS`, 2026) | MRI-CNN binary target |
 |---|---|---|---|---|
 | **CN** | Cognitively Normal | **0** | **0** | 0 |
 | **AD** | Alzheimer's Disease (dementia) | **1** | **1** | 1 (in AD-vs-CN) |
 | **MCI** | Mild Cognitive Impairment | **2** | **2** | 1 (in MCI-vs-CN) |
 
 - Cognitive encoding: [cognitive_tests_preprocessing.py#L100](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L100).
-- MRI encoding (applied during the ensemble merge): [ensemble_preprocessing.py#L34](../../src/data_preprocessing/ensemble_preprocessing.py#L34) → `df_ensemble['MACRO_GROUP'].replace({'AD':1,'CN':0,'MCI':2})`.
+- `MACRO_GROUP` encoding (2026): set equal to the already-numeric `DIAGNOSIS` in `ensemble_preprocessing.py` (`df_ensemble['MACRO_GROUP'] = df_ensemble['DIAGNOSIS']`).
+- **(pre-2026)** the MRI-side string label was mapped during the ensemble merge via `df_ensemble['MACRO_GROUP'].replace({'AD':1,'CN':0,'MCI':2})`.
 
 ### The two classification TASKS — binary, not three-class
 
 **The 0/1/2 encoding is a storage convention, not how models train.** Every classifier in this repo is **binary**. There are two distinct tasks:
 
-1. **AD-vs-CN** — the primary task. Default class selection is `[0,1]` ([mri_selection.py#L7](../../src/data_preprocessing/mri_selection.py#L7), [ensemble_preprocessing.py#L68](../../src/data_preprocessing/ensemble_preprocessing.py#L68), [cognitive_tests_train.py#L127](../../src/model_training/cognitive_tests_train.py#L127)), i.e. CN=0 vs AD=1. MCI (=2) is excluded.
+1. **AD-vs-CN** — the primary task. Default class selection is `[0,1]` ([mri_selection.py#L7](../../src/data_preprocessing/mri_selection.py#L7), [ensemble_preprocessing.py `--classes` default](../../src/data_preprocessing/ensemble_preprocessing.py), [cognitive_tests_train.py#L127](../../src/model_training/cognitive_tests_train.py#L127)), i.e. CN=0 vs AD=1. MCI (=2) is excluded.
 2. **MCI-vs-CN** — a *separate* binary task on a different class pair. Here MCI is **re-encoded to the positive class 1** (not 2). The MRI trainer `return_sets` ([mri_train.py#L316](../../src/model_training/mri_train.py#L316)) makes this explicit:
    - `classes == {'AD','CN'}` → `CN→0, AD→1`
    - `classes == {'MCI','CN'}` → `CN→0, MCI→1`
@@ -217,19 +234,36 @@ Both sides reduce to exactly **`CN`, `MCI`, `AD`**.
 
 So MCI is **"a separate task"**: stored as 2, never mixed into the AD-vs-CN model, and remapped to 1 only when it is the positive class in its own MCI-vs-CN run. This re-encoding step is described further in [training.md](../modeling/training.md).
 
-### CONFLICT_DIAGNOSIS — when the two label sources disagree
+### CONFLICT_DIAGNOSIS — retained but always `False` (2026)
 
-`remove_conflicting_diagnosis` ([ensemble_preprocessing.py#L54](../../src/data_preprocessing/ensemble_preprocessing.py#L54)) reconciles the cognitive label against the MRI label:
-- `diff = query("DIAGNOSIS != MACRO_GROUP")['IMAGEUID']` — rows where the cognitive label and the MRI label disagree.
-- Adds a boolean column **`CONFLICT_DIAGNOSIS`**: `True` where `DIAGNOSIS != MACRO_GROUP`, else `False` ([#L57](../../src/data_preprocessing/ensemble_preprocessing.py#L57)).
-- Returns only `CONFLICT_DIAGNOSIS == False` rows. The saved ensemble reference is already conflict-filtered, but the column is retained so downstream code can re-filter.
+**Current behavior:** `ensemble_preprocessing.py` sets `CONFLICT_DIAGNOSIS = False` for every
+row. With a single diagnosis source (`MACRO_GROUP = DIAGNOSIS`), no row can conflict, so the
+column exists only to satisfy the downstream contract — the filters below still run, they
+just never drop anything.
 
-Downstream uses of the flag:
+**(pre-2026)** `remove_conflicting_diagnosis` reconciled the cognitive label against the
+independent MRI label:
+- `diff = query("DIAGNOSIS != MACRO_GROUP")['IMAGEUID']` — rows where the two labels disagreed.
+- Set `CONFLICT_DIAGNOSIS = True` where `DIAGNOSIS != MACRO_GROUP`, else `False`.
+- Kept only `CONFLICT_DIAGNOSIS == False` rows; the column was retained so downstream code could re-filter.
+
+This mattered because the MRI `GROUP` (scan-time diagnosis) could differ from the cognitive
+`DX` (visit diagnosis). With one source, that divergence is gone.
+
+Downstream still reads the flag (all no-ops now, but the code paths are live):
 - [ensemble_preparation.py#L36](../../src/data_preparation/ensemble_preparation.py#L36) — `query("CONFLICT_DIAGNOSIS == False")` before splitting.
 - [cognitive_tests_train.py#L51](../../src/model_training/cognitive_tests_train.py#L51) — same filter when joining the `DATASET` split.
-- MRI prep modules exclude conflicting images by `IMAGE_DATA_ID` ([mri_preparation.py#L65](../../src/data_preparation/mri_preparation.py#L65), [mri_batch_preparation.py#L55](../../src/data_preparation/mri_batch_preparation.py#L55), [mri_metadata_preparation.py#L60](../../src/data_preparation/mri_metadata_preparation.py#L60)).
+- MRI prep modules exclude conflicting images by `IMAGE_DATA_ID` ([mri_preparation.py#L74](../../src/data_preparation/mri_preparation.py#L74), [mri_batch_preparation.py#L56](../../src/data_preparation/mri_batch_preparation.py#L56), [mri_metadata_preparation.py#L61](../../src/data_preparation/mri_metadata_preparation.py#L61)).
 
-`remove_missing_mris_in_validation` ([ensemble_preprocessing.py#L61](../../src/data_preprocessing/ensemble_preprocessing.py#L61)) then drops a hardcoded blacklist of 3 `IMAGEUID`s whose axial MRI was missing in validation: **`[293688, 274525, 280596]`** ([#L62](../../src/data_preprocessing/ensemble_preprocessing.py#L62)).
+`remove_missing_mris_in_validation` ([ensemble_preprocessing.py](../../src/data_preprocessing/ensemble_preprocessing.py)) still drops a hardcoded blacklist of 3 `IMAGEUID`s whose axial MRI was missing in validation: **`[293688, 274525, 280596]`**.
+
+### HAS_PREPROCESSED_MRI — the on-disk flag (2026, optional)
+
+When `ensemble_preprocessing.py` is run with `--downloaded-mri-reference DOWNLOAD_RAW_MRI.csv`,
+it adds a boolean **`HAS_PREPROCESSED_MRI`**: `True` when the row's `IMAGEUID` matches a scan
+you have downloaded (`IMAGE_DATA_ID = 'I' + IMAGEUID`). Rows are **not** filtered on it — it
+is an extra column so a later step can restrict the ensemble to images that actually exist on
+disk. Absent when the flag is not passed.
 
 ## The exact feature set fed to each model
 
@@ -279,7 +313,7 @@ A small family of IDs links MRI volumes, slices, visits, and subjects across the
 
 **The `_I<id>` filename token** is the single thread linking a `.nii`/`.nii.gz` file back to its metadata: `img_id = 'I'+path.split('_I')[-1].split('_')[0]`, with the `.`-suffix and `_MCI`/`_CN`/`_AD`/` (1)` tags stripped ([utils.py#L145](../../src/utils/utils.py#L145)).
 
-**IMAGEUID ↔ IMAGE_DATA_ID bridge:** the MRI metadata `IMAGE_DATA_ID` is renamed to `IMAGEUID` and the leading `I` is stripped + cast `int64` so the keys are comparable ([mri_selection.py#L36](../../src/data_preprocessing/mri_selection.py#L36), [ensemble_preprocessing.py#L24](../../src/data_preprocessing/ensemble_preprocessing.py#L24)); the reverse (`'I'+str(IMAGEUID)`) happens in [ensemble_preparation.py#L49](../../src/data_preparation/ensemble_preparation.py#L49). See [data-structure.md](data-structure.md) for how these IDs appear in on-disk filenames.
+**IMAGEUID ↔ IMAGE_DATA_ID bridge:** the MRI metadata `IMAGE_DATA_ID` is renamed to `IMAGEUID` and the leading `I` is stripped + cast `int64` so the keys are comparable ([mri_selection.py#L36](../../src/data_preprocessing/mri_selection.py#L36)); the reverse (`'I'+str(IMAGEUID)`) happens in [ensemble_preparation.py#L49](../../src/data_preparation/ensemble_preparation.py#L49) and in the 2026 `ensemble_preprocessing.py` on-disk flag (`HAS_PREPROCESSED_MRI`). See [data-structure.md](data-structure.md) for how these IDs appear in on-disk filenames.
 
 ### DATASET column values
 
@@ -334,21 +368,23 @@ Inner-merge the wide MRI table × cognitive table on `['SUBJECT','IMAGE_DATA_ID'
 | Constant | Value | Where |
 |---|---|---|
 | Diagnosis encoding (cog) | CN=0, AD=1, MCI=2 | [cognitive_tests_preprocessing.py#L100](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L100) |
-| Diagnosis encoding (MRI) | AD=1, CN=0, MCI=2 | [ensemble_preprocessing.py#L34](../../src/data_preprocessing/ensemble_preprocessing.py#L34) |
+| `MACRO_GROUP` (2026) | `= DIAGNOSIS` (single source) | [ensemble_preprocessing.py](../../src/data_preprocessing/ensemble_preprocessing.py) |
+| Diagnosis encoding (MRI, **pre-2026**) | AD=1, CN=0, MCI=2 | (MRI merge; removed in 2026 rewrite) |
 | `Dementia`→`AD` | — | [cognitive_tests_preprocessing.py#L63](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L63) |
 | `LMCI`/`EMCI`→`MCI`, `SMC`→`CN` (cog) | — | [#L64](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L64) |
-| `SMC`→`CN`, `EMCI`/`LMCI`→`MCI` (MRI) | — | [utils.py#L84](../../src/utils/utils.py#L84) |
+| `SMC`→`CN`, `EMCI`/`LMCI`→`MCI` (MRI-side helper) | — | [utils.py#L84](../../src/utils/utils.py#L84) |
 | No-MRI sentinel | `IMAGEUID = 999999` | [cognitive_tests_preprocessing.py#L97](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L97) |
-| Default class pair | `[0,1]` = CN vs AD | [mri_selection.py#L7](../../src/data_preprocessing/mri_selection.py#L7), [ensemble_preprocessing.py#L68](../../src/data_preprocessing/ensemble_preprocessing.py#L68) |
+| Default class pair | `[0,1]` = CN vs AD | [mri_selection.py#L7](../../src/data_preprocessing/mri_selection.py#L7), [ensemble_preprocessing.py `--classes` default](../../src/data_preprocessing/ensemble_preprocessing.py) |
 | MCI as positive class | MCI→1 in MCI-vs-CN | [mri_train.py#L321](../../src/model_training/mri_train.py#L321) |
-| Missing-axial-MRI blacklist | `[293688, 274525, 280596]` | [ensemble_preprocessing.py#L62](../../src/data_preprocessing/ensemble_preprocessing.py#L62) |
+| Missing-axial-MRI blacklist | `[293688, 274525, 280596]` | [ensemble_preprocessing.py#L89](../../src/data_preprocessing/ensemble_preprocessing.py#L89) |
 | Split seed (ensemble) | `151` | [ensemble_preparation.py#L37](../../src/data_preparation/ensemble_preparation.py#L37) |
 | Hispanic encoding | Hisp/Latino=1, else 0 | [cognitive_tests_preprocessing.py#L93](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L93) |
 | Male encoding | Male=1, Female=0 | [cognitive_tests_preprocessing.py#L104](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L104) |
 
 ## Gotchas specific to data semantics
 
-- **Three label columns, three meanings.** `DIAGNOSIS` (current dx, numeric), `DIAGNOSIS_BASELINE` (baseline dx, **string, never encoded**), `MACRO_GROUP` (MRI dx). Do not treat `DIAGNOSIS_BASELINE` as a numeric target.
+- **Three label columns, three meanings.** `DIAGNOSIS` (current dx, numeric), `DIAGNOSIS_BASELINE` (baseline dx, **string, never encoded**), `MACRO_GROUP` (in 2026 a copy of `DIAGNOSIS`; **pre-2026** the independent MRI dx). Do not treat `DIAGNOSIS_BASELINE` as a numeric target.
+- **`CONFLICT_DIAGNOSIS` is always `False` (2026).** Diagnosis has one source now, so the conflict column exists only for the downstream contract — its filters run but never drop a row. See the [CONFLICT_DIAGNOSIS section](#conflict_diagnosis--retained-but-always-false-2026).
 - **The 0/1/2 codes are not three model classes.** Every model is binary; `2` (MCI) is excluded from AD-vs-CN and re-coded to `1` in MCI-vs-CN.
 - **`RACE` survives as a string** in `COGNITIVE_DATA_PREPROCESSED.csv` even after the one-hots are derived (not dropped during encoding, [#L88](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L88)); it is dropped only at the modeling step ([cognitive_tests_train.py#L54](../../src/model_training/cognitive_tests_train.py#L54)).
 - **`MARRIED` is overwritten in place** — it starts as the string column and ends as the `Married` indicator ([#L110](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L110)); the original strings are gone after encode.

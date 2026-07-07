@@ -117,11 +117,12 @@ python3 scripts/rebuild_adnimerge_from_adnimerge2.py \
 - **Out:** `data/reference/PREPROCESSED_MRI_REFERENCE.csv` ([:39,45](../../src/data_preprocessing/mri_metadata_preprocessing.py#L39)).
 - **README discrepancy:** this step is **not mentioned in the README at all**.
 
-## Step 6 — Ensemble preprocessing (join tabular + MRI)
+## Step 6 — Ensemble preprocessing (build the ensemble reference from cognitive data)
 
-- **Script / fn:** [ensemble_preprocessing.py](../../src/data_preprocessing/ensemble_preprocessing.py) → `execute_ensemble_preprocessing(...)` ([:5](../../src/data_preprocessing/ensemble_preprocessing.py#L5)). CLI is sound.
-- **In:** `COGNITIVE_DATA_PREPROCESSED.csv` (Step 2) + `PREPROCESSED_MRI_REFERENCE.csv` (Step 5b) ([:66-67](../../src/data_preprocessing/ensemble_preprocessing.py#L66)).
-- **Out:** `data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv` ([:69](../../src/data_preprocessing/ensemble_preprocessing.py#L69)) carrying the `CONFLICT_DIAGNOSIS` flag (set where the MRI-side `MACRO_GROUP` and the cognitive-side `DIAGNOSIS` disagree). Drops `IMAGEUID==999999` and the hardcoded missing-axial-validation list `[293688, 274525, 280596]` ([:62](../../src/data_preprocessing/ensemble_preprocessing.py#L62)).
+- **Script / fn:** [ensemble_preprocessing.py](../../src/data_preprocessing/ensemble_preprocessing.py) → `execute_ensemble_preprocessing(cognitive_path, output_path, classes=[0,1], downloaded_mri_reference_path=None)`. CLI: `python src/data_preprocessing/ensemble_preprocessing.py --cognitive ... --output ... --classes 0 1 [--downloaded-mri-reference DOWNLOAD_RAW_MRI.csv]`.
+- **In:** `COGNITIVE_DATA_PREPROCESSED.csv` (Step 2). **2026:** the MRI reference is no longer an input — the diagnosis now has a single source in ADNIMERGE. Optionally pass `DOWNLOAD_RAW_MRI.csv` to tag on-disk availability.
+- **Out:** `data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv`. Sets `MACRO_GROUP = DIAGNOSIS` and `CONFLICT_DIAGNOSIS = False` (both kept for the downstream contract). Drops `IMAGEUID==999999` and the hardcoded missing-axial-validation list `[293688, 274525, 280596]`; filters to `--classes`. Adds `HAS_PREPROCESSED_MRI` when the downloaded-MRI reference is passed.
+- **2026 change:** the old cognitive × MRI merge + `remove_conflicting_diagnosis` was removed. See [mri-preprocessing.md](../data/mri-preprocessing.md#ensemble_preprocessingpy--build-the-ensemble-reference-from-cognitive-data-2026-rewrite).
 - **README discrepancy:** **not mentioned in the README.**
 
 ## Step 7 — Ensemble preparation (assign train / validation / test)

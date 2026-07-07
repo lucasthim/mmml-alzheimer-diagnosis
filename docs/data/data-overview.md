@@ -60,7 +60,7 @@ The join hinges on two equivalent identifiers for the same MRI:
 - **`IMAGEUID`** — ADNI's *integer* image id, used on the tabular side (e.g. `261073`). On `ADNIMERGE.csv` a visit with no MRI leaves this blank; the code fills it with the sentinel **`999999`** and casts to int ([cognitive_tests_preprocessing.py:97-98](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L97)).
 - **`IMAGE_DATA_ID`** — ADNI's *string* image id, used on the MRI-metadata side (e.g. `I261073`). It is literally `'I'` + `IMAGEUID`.
 
-The merge in [ensemble_preprocessing.py](../../src/data_preprocessing/ensemble_preprocessing.py) joins on `['SUBJECT','IMAGEUID']` after stripping the leading `I` off the MRI side's `IMAGE_DATA_ID` and casting to int ([ensemble_preprocessing.py:24-25](../../src/data_preprocessing/ensemble_preprocessing.py#L24)). `IMAGEUID == 999999` rows (no-MRI visits) are filtered out before the join ([ensemble_preprocessing.py:22](../../src/data_preprocessing/ensemble_preprocessing.py#L22)). The reverse direction (`'I' + IMAGEUID`) is rebuilt later in [ensemble_preparation.py:49](../../src/data_preparation/ensemble_preparation.py#L49).
+**(pre-2026)** [ensemble_preprocessing.py](../../src/data_preprocessing/ensemble_preprocessing.py) merged cognitive × MRI on `['SUBJECT','IMAGEUID']` after stripping the leading `I` off the MRI side's `IMAGE_DATA_ID`. **In 2026** that merge is gone (single diagnosis source); the module just reads the cognitive table and drops `IMAGEUID == 999999` rows. The reverse direction (`'I' + IMAGEUID`) is rebuilt later in [ensemble_preparation.py:49](../../src/data_preparation/ensemble_preparation.py#L49).
 
 The full ID system (`SUBJECT`, `SUBJECT_IMAGE_ID`, `SLICE_ID`, `RUN_ID`, …) is catalogued in [data-semantics.md](data-semantics.md).
 
@@ -96,7 +96,7 @@ The seven tables you will touch most. Producer/consumer wiring and full column l
 | `MPRAGE_REFERENCE.csv` + `REFERENCE_MRI_ENSEMBLE_*.csv` | Raw per-batch MRI metadata exports; carry the `GROUP` diagnosis field. | **External** (ADNI) |
 | `COGNITIVE_DATA_PREPROCESSED.csv` | Cleaned cognitive + demographics; `DIAGNOSIS` encoded `CN=0, AD=1, MCI=2`. | [cognitive_tests_preprocessing.py:57](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L57) |
 | `PREPROCESSED_MRI_REFERENCE.csv` | 3D-image metadata after skull-strip; `IMAGE_DATA_ID` is `I######`; `MACRO_GROUP` from `GROUP`. | [mri_metadata_preprocessing.py:45](../../src/data_preprocessing/mri_metadata_preprocessing.py#L45) |
-| `PREPROCESSED_ENSEMBLE_REFERENCE.csv` | Cognitive × MRI merge; adds `MACRO_GROUP` (numeric) and the `CONFLICT_DIAGNOSIS` flag. | [ensemble_preprocessing.py:42](../../src/data_preprocessing/ensemble_preprocessing.py#L42) |
+| `PREPROCESSED_ENSEMBLE_REFERENCE.csv` | **2026:** cognitive rows with a real MRI id, in the class pair; `MACRO_GROUP = DIAGNOSIS`, `CONFLICT_DIAGNOSIS` always `False`, optional `HAS_PREPROCESSED_MRI`. (**pre-2026:** cognitive × MRI merge with a real conflict flag.) | [ensemble_preprocessing.py](../../src/data_preprocessing/ensemble_preprocessing.py) |
 | `PROCESSED_ENSEMBLE_REFERENCE.csv` | Adds the `DATASET` split (train/validation/test) and rebuilds `IMAGE_DATA_ID`. | [ensemble_preparation.py:52](../../src/data_preparation/ensemble_preparation.py#L52) |
 | `PROCESSED_MRI_REFERENCE_*.csv` | Per-slice (2D) reference for CNN training; one row per (image, orientation, slice). | [mri_batch_preparation.py:101](../../src/data_preparation/mri_batch_preparation.py#L101) |
 

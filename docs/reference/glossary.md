@@ -5,7 +5,7 @@
 This page defines the vocabulary that recurs across the docs and code: ADNI/clinical terms, the 3D MRI preprocessing methods, the ML and explainability stack, and the project's own ID and column conventions. Each entry is one to two lines; where a doc covers the term in depth, the term links there.
 
 Three quick anchors a returning reader always wants:
-- The diagnostic classes are `CN`, `MCI`, `AD`, encoded `CN=0, AD=1, MCI=2` for both the cognitive `DIAGNOSIS` and the MRI `MACRO_GROUP` ([cognitive_tests_preprocessing.py#L100](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L100), [ensemble_preprocessing.py#L34](../../src/data_preprocessing/ensemble_preprocessing.py#L34)). See [data-semantics.md](../data/data-semantics.md).
+- The diagnostic classes are `CN`, `MCI`, `AD`, encoded `CN=0, AD=1, MCI=2` for the cognitive `DIAGNOSIS` ([cognitive_tests_preprocessing.py#L100](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L100)). In 2026 `MACRO_GROUP` is a copy of `DIAGNOSIS` (single source). See [data-semantics.md](../data/data-semantics.md).
 - Every model is **binary**; `2` (MCI) is excluded from AD-vs-CN and re-coded to `1` in its own MCI-vs-CN task.
 - The full bug/stub/rot catalogue lives in [known-issues.md](known-issues.md).
 
@@ -51,7 +51,7 @@ Three quick anchors a returning reader always wants:
 
 **`COGNITIVE_DATA_PREPROCESSED.csv`** — Output of the tabular track: cleaned cognitive + demographic table, one row per **visit**, with `DIAGNOSIS` encoded 0/1/2. The README mistakenly calls it `COGNITIVE_DATA_PROCESSED.csv` (see [known-issues.md](known-issues.md)). See [data-structure.md](../data/data-structure.md).
 
-**`CONFLICT_DIAGNOSIS`** — Boolean column added at the ensemble merge, `True` where the cognitive `DIAGNOSIS` disagrees with the MRI `MACRO_GROUP` ([ensemble_preprocessing.py#L57](../../src/data_preprocessing/ensemble_preprocessing.py#L57)). Conflicting rows are filtered out downstream. See [data-semantics.md](../data/data-semantics.md).
+**`CONFLICT_DIAGNOSIS`** — Boolean column on the ensemble reference. **2026:** always `False`, because diagnosis has a single source (`MACRO_GROUP = DIAGNOSIS`); the column is kept only so downstream filters still run. **(pre-2026:** `True` where the cognitive `DIAGNOSIS` disagreed with the independent MRI `MACRO_GROUP`, and conflicting rows were dropped.) See [data-semantics.md](../data/data-semantics.md).
 
 **Coronal** — The front-to-back (face-on) MRI slice plane. One of three orientations; AD uses `coronal_43`, MCI uses `coronal_70`.
 

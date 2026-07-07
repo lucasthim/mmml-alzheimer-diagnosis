@@ -97,7 +97,7 @@ flowchart LR
 
 - **`COGNITIVE_DATA_PREPROCESSED.csv`** — cleaned cognitive + demographic table, one row per ADNI visit. Produced by [cognitive_tests_preprocessing.py#L57](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L57).
 - **`PREPROCESSED_MRI_REFERENCE.csv`** — 3D-image metadata (post skull-strip), keyed by `IMAGE_DATA_ID` (`I######`). Produced by [mri_metadata_preprocessing.py#L45](../../src/data_preprocessing/mri_metadata_preprocessing.py#L45).
-- **`PREPROCESSED_ENSEMBLE_REFERENCE.csv`** — the join of cognitive × MRI on `(SUBJECT, IMAGEUID)`, carrying the `CONFLICT_DIAGNOSIS` flag (true when the cognitive label disagrees with the MRI macro-group). Produced by [ensemble_preprocessing.py#L42](../../src/data_preprocessing/ensemble_preprocessing.py#L42).
+- **`PREPROCESSED_ENSEMBLE_REFERENCE.csv`** — **2026:** cognitive rows with a real MRI id, in the class pair; `MACRO_GROUP = DIAGNOSIS` and `CONFLICT_DIAGNOSIS` is always `False` (single diagnosis source). Produced by [ensemble_preprocessing.py](../../src/data_preprocessing/ensemble_preprocessing.py). (**pre-2026:** the join of cognitive × MRI on `(SUBJECT, IMAGEUID)` with a real conflict flag.)
 - **`PROCESSED_ENSEMBLE_REFERENCE.csv`** — adds the `DATASET` ∈ {train, validation, test} split, assigned at the **subject level** (leakage-safe, `random_seed=151`). Produced by [ensemble_preparation.py](../../src/data_preparation/ensemble_preparation.py).
 - **`PROCESSED_MRI_REFERENCE_*.csv`** — one row per 2D slice, the reference the CNN trainer iterates. Produced by [mri_batch_preparation.py#L101](../../src/data_preparation/mri_batch_preparation.py#L101).
 
