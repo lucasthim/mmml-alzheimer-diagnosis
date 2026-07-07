@@ -20,14 +20,13 @@ ships a script that does exactly that:
 > **TL;DR**
 > ```bash
 > pip install --user rdata pandas
-> # 1. (one-time) build the IMAGEUID map from the UCSF FreeSurfer tables — see §5
-> # 2. rebuild the flat file:
 > python3 scripts/rebuild_adnimerge_from_adnimerge2.py \
->     --pkg data/ADNIMERGE2 --out data/tabular/ADNIMERGE.csv \
->     --imageuid-map data/reference/IMAGEUID_FROM_UCSF.csv --selfcheck
+>     --pkg data/ADNIMERGE2 --out data/tabular/ADNIMERGE.csv --selfcheck
 > ```
 > Output: `data/tabular/ADNIMERGE.csv` (15,836 visit-rows × 44 cols), a drop-in
 > for the existing [cognitive_tests_preprocessing.py](../../src/data_preprocessing/cognitive_tests_preprocessing.py).
+> `IMAGEUID` is now linked **internally** from ADNIMERGE2's own UCSF FreeSurfer
+> tables — no external image-collection file needed (see [§5](#5-imageuid-the-mri-link)).
 
 ## 1. What ADNIMERGE2 is
 
@@ -107,7 +106,7 @@ recomputed (the way classic ADNIMERGE did). Full clinical meanings stay in
 | `LDELTOTAL`,`DIGITSCOR`,`TRABSCOR` | `NEUROBAT` | Direct | first two dropped by default |
 | `FAQ` | `FAQ.FAQTOTAL` | Direct | renamed |
 | `Ecog*` (14 cols) | `ECOGPT`/`ECOGSP` | emitted empty (NaN) | dropped by default (`exclude_ecog_tests=True`) |
-| `IMAGEUID` | **not in clinical tables** | merged separately | see [§5](#5-imageuid-the-mri-link) |
+| `IMAGEUID` | UCSF FreeSurfer tables (`UCSFFSX7` + siblings) | **Derived** | internal link, joined on `RID`+`VISCODE`; see [§5](#5-imageuid-the-mri-link) |
 | `APOE4` | `APOERES.GENOTYPE` | derivable | *not used by the pipeline* |
 
 \* The encoders in [cognitive_tests_preprocessing.py#L84](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L84)
@@ -126,37 +125,58 @@ SDTM `QS` table only has ADAS totals; `ITEM` has per-word raw responses.)
 ## 5. IMAGEUID (the MRI link)
 
 `IMAGEUID` (the `I######` that ties a visit to its MRI and appears in the NIfTI
-filenames) is **not** in ADNIMERGE2's clinical/visit tables. The MRI CRF tables
-expose `LONIUID` / `LONI_IMAGE`, which is a **different identifier namespace**
-(zero overlap with IMAGEUID — do not use it). The real `IMAGEUID` lives in the
-**UCSF FreeSurfer** tables (`UCSFFSX`, `UCSFFSX51`, `UCSFFSX51_ADNI1_3T`,
-`UCSFFSX6`, `UCSFFSX7`) — i.e. the analysis-grade T1 MP-RAGE that was FreeSurfered,
-one per visit.
+filenames) is **not** in ADNIMERGE2's clinical/visit tables, but it **is** in
+ADNIMERGE2's own **imaging analysis tables**. The rebuild links it **internally** —
+no external image-collection export required — via
+[`link_imageuid_internal()`](../../scripts/rebuild_adnimerge_from_adnimerge2.py).
 
-Build a reusable `RID,VISCODE,IMAGEUID` map by unioning those tables (the snippet
-that produced `data/reference/IMAGEUID_FROM_UCSF.csv` — 12,484 pairs — is in the
-project history), then merge it during the rebuild:
+**Two ID namespaces (this matters).** The downloadable "Pre-processed" collection
+is 100% *processed derivatives* — one raw MP-RAGE acquisition explodes into ~6.7
+processed images, each with its own `I#####`. So there are two disjoint spaces:
 
-```bash
-python3 scripts/rebuild_adnimerge_from_adnimerge2.py --pkg data/ADNIMERGE2 \
-    --out data/tabular/ADNIMERGE.csv --imageuid-map data/reference/IMAGEUID_FROM_UCSF.csv
-```
+- **IMAGEUID** = the *processed*-T1 image id. This is what the downloadable
+  collection uses (verified: the collection's ids are ≈99.9% inside the IMAGEUID
+  pool, ≈16% inside LONIUID). Use this.
+- **LONIUID / LONI_IMAGE** = a different id (mostly *raw*-acquisition ids). The raw
+  MRI-CRF tables (`MRIQC`, `MRIFind`, MAYO QC …) are genuine per-scan lists but key
+  the raw namespace → ~0% overlap with the processed collection. Do **not** use
+  them to key downloadable T1.
 
-The merge is on `RID`+`VISCODE`, collapsing the screening/baseline family
-(`sc`/`scmri`/`bl`/`init`) to one baseline timepoint so a screening scan links to
-the baseline diagnosis. Result: **10,862/15,836 (69%)** visit-rows get an IMAGEUID;
-the rest stay as the `999999` "no MRI" sentinel ([encode_variables](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L97)).
-Verified: 100% of populated IDs trace back to the source map, 10,066 distinct
-scans, and `mri_selection` would emit **5,799 CN/AD scans** to download (vs 0
-before the merge).
+**Where the processed IMAGEUID lives.** The UCSF FreeSurfer / morphometry tables:
+`UCSFFSX7` (all phases) + `UCSFFSX`, `UCSFFSX51`, `UCSFFSX51_ADNI1_3T`, `UCSFFSL`,
+`UCSFFSL51*`, `BSI`, `UASPMVBM`, `UCSFSNTVOL`, and `FOXLABBSI.LONIUID` — each row is
+one FreeSurfered T1 with `RID, VISCODE, IMAGEUID, EXAMDATE`. Deliberately excluded:
+`UCSFFSX6` (its ADNI3 ids are *raw*, 0% in the collection) and the baseline-reference
+columns `TBM22.IMAGEUID_1` / `FOXLABBSI.LONIUID_BASE` (they repeat one baseline scan
+across every follow-up row).
 
-**Caveat — which IMAGEUID this is.** These are the FreeSurfer-processed T1 per
-visit: a valid "which scan to download/use" list, **not guaranteed to be the exact
-scans downloaded for the original 2021 study**. For a fresh run that is fine (any
-valid T1 MP-RAGE per visit works). If you have a real **LONI image-collection
-export** instead (the `MPRAGE_REFERENCE` flow in [data-acquisition.md](data-acquisition.md)),
-pass it with `--image-collection <csv>` to match on `Subject`+`Visit` and strip
-the `I` prefix.
+**How the link is built** (see the function docstring for detail):
+
+1. Union those tables → `(RID, VISCODE, IMAGEUID, EXAMDATE)`.
+2. Join to the DXSUM spine on `RID`+`VISCODE`, with the screening family
+   `sc`/`scmri` normalized to baseline (`bl`). **`init` is *never* collapsed** — it
+   is the distinct ADNI3 initial visit; collapsing `init`→`bl` was the old bug that
+   glued 2005 baseline scans onto 2017–2019 visits.
+3. Place each IMAGEUID on exactly **one** visit — the one whose `EXAMDATE` is
+   nearest the scan's own acquisition date (so a screening scan stays on the near
+   `sc` row, not a far re-baselined `bl` row).
+
+Result: **10,275/15,836 (65%)** visit-rows get an IMAGEUID (only FreeSurfered
+visits have one; the rest keep the `999999` "no MRI" sentinel —
+[encode_variables](../../src/data_preprocessing/cognitive_tests_preprocessing.py#L97)).
+Verified: **0** images on >1 visit, **0** images carrying >1 diagnosis, **0** scans
+glued >3 years off; scan↔visit date gap median ~9 days; deterministic; and it
+agrees with the independent acquisition-date linker
+([scripts/link_mri_by_acqdate.py](../../scripts/link_mri_by_acqdate.py)) on ~94% of
+shared visits. Per-phase coverage: ADNI1 92%, ADNIGO 90%, ADNI2 51%, ADNI3 66%,
+ADNI4 46%. The only residual (~0.1% of links) is a scan acquired *between* two
+visits during a diagnosis transition sitting on a label that differs from the
+diagnosis at the scan instant — inherent to any visit-code join, not a mislink.
+
+**Override.** To source IMAGEUID from your own `Subject/Visit/Image Data ID`
+mapping instead (a LONI image-collection export, or the on-disk downloaded set via
+[link_mri_by_acqdate.py](../../scripts/link_mri_by_acqdate.py)), pass
+`--image-collection <csv>` (matched on `PTID`+`VISCODE`, `I` prefix stripped).
 
 ## 6. Phase coverage (ADNI1 to ADNI4)
 
@@ -174,16 +194,16 @@ scans (IMAGEUIDs) by collection phase (`COLPROT`):
 **ADNI4 did not exist when the original study was built (ADNI1/GO/2/3)**, so this
 cohort is broader than the original. To reproduce the original cohort, drop ADNI4
 (`df = df[df["COLPROT"] != "ADNI4"]`, or filter `ORIGPROT`); to expand the dataset
-for new work, keep it. Per-phase IMAGEUID coverage varies (ADNI1 ~92%, ADNI3 ~84%,
-ADNI2/ADNI4 ~50% — visit-code mismatches and visits with no FreeSurfer T1).
+for new work, keep it. Per-phase IMAGEUID coverage varies (ADNI1 ~92%, ADNIGO ~90%,
+ADNI3 ~66%, ADNI2 ~51%, ADNI4 ~46% — visits with no FreeSurfer T1; see [§5](#5-imageuid-the-mri-link)).
 
 ## 7. Files this produces
 
 | File | What |
 |---|---|
 | `data/ADNIMERGE2/` | the unpacked R data package (gitignored) |
-| `data/reference/IMAGEUID_FROM_UCSF.csv` | reusable `RID,VISCODE,IMAGEUID` map (12,484 pairs) |
-| `data/tabular/ADNIMERGE.csv` | the rebuilt flat file (15,836 × 44) — pipeline input |
+| `data/tabular/ADNIMERGE.csv` | the rebuilt flat file (15,836 × 44) — pipeline input; IMAGEUID linked internally (§5) |
+| `data/reference/IMAGEUID_FROM_UCSF.csv` | *superseded* — a pre-extracted `RID,VISCODE,IMAGEUID` map; the rebuild now derives this internally, no longer needed |
 
 After this, continue with the normal flow: run
 [cognitive_tests_preprocessing.py](../../src/data_preprocessing/cognitive_tests_preprocessing.py)

@@ -23,11 +23,17 @@ Usage
 
 Caveats (see docs/data/data-acquisition.md and docs/data/data-semantics.md)
 --------------------------------------------------------------------------
-* IMAGEUID is NOT present in ADNIMERGE2's clinical tables. It is emitted as NaN;
-  the downstream preprocessing fills it with the 999999 "no MRI" sentinel, which
-  means MRI selection will pick nothing until you merge real IMAGEUIDs from your
-  LONI image-collection export (the MPRAGE_REFERENCE step). Use --image-collection
-  to merge them in (matched on PTID + VISCODE) if you have that CSV.
+* IMAGEUID is linked INTERNALLY from ADNIMERGE2's own UCSF FreeSurfer / morphometry
+  tables (the processed-T1 image id that keys the downloadable "Pre-processed"
+  collection) -- see link_imageuid_internal(). No external LONI image-collection
+  export is required. The join is (RID, VISCODE) with the screening family
+  sc/scmri treated as baseline (bl); 'init' is deliberately NOT collapsed (it is
+  the distinct ADNI3 initial visit -- collapsing it was an old bug that glued 2005
+  baseline scans onto 2017-2019 visits). Each IMAGEUID lands on exactly one visit,
+  so no scan is duplicated across visits. ~65% of diagnosed visits get an IMAGEUID
+  (only FreeSurfered visits have one); the rest keep the 999999 "no MRI" sentinel
+  downstream. Pass --image-collection to override with your own Subject/Visit/Image
+  mapping (e.g. the acquisition-date linker's output) instead.
 * Ecog* columns are emitted empty (NaN); the pipeline drops them by default
   (exclude_ecog_tests=True). Populate from ECOGPT/ECOGSP if you need them.
 * Joins are on (RID, VISCODE). ADNI's VISCODE/VISCODE2 coding has edge cases;
@@ -125,7 +131,93 @@ def to_dt(s):
     return pd.to_datetime(s, errors="coerce")
 
 
-def build(pkg, image_collection=None, imageuid_map=None):
+# UCSF FreeSurfer / morphometry tables that carry the PROCESSED-T1 IMAGEUID (the
+# I##### that keys the downloadable "Pre-processed" collection) alongside RID +
+# VISCODE. One processed scan per visit; listed in preference order (cross-phase /
+# most complete first). Only per-visit scan columns are used -- baseline-reference
+# columns (FOXLABBSI.LONIUID_BASE, TBM22.IMAGEUID_1) are excluded because they
+# repeat one baseline scan across every follow-up row. UCSFFSX6 is excluded: its
+# ADNI3 ids are RAW acquisition ids, absent from the processed download namespace.
+UCSF_IMAGEUID_TABLES = [
+    ("UCSFFSX7", "IMAGEUID"), ("UCSFFSX", "IMAGEUID"), ("UCSFFSX51", "IMAGEUID"),
+    ("UCSFFSX51_ADNI1_3T", "IMAGEUID"), ("UCSFFSL", "IMAGEUID"),
+    ("UCSFFSL51", "IMAGEUID"), ("UCSFFSL51ALL", "IMAGEUID"), ("UCSFFSL51Y1", "IMAGEUID"),
+    ("BSI", "IMAGEUID"), ("UASPMVBM", "IMAGEUID"), ("UCSFSNTVOL", "IMAGEUID"),
+    ("FOXLABBSI", "LONIUID"),   # label is LONIUID but values are the IMAGEUID namespace
+]
+
+
+def link_imageuid_internal(spine, pkg):
+    """Fill spine['IMAGEUID'] from ADNIMERGE2's own UCSF FreeSurfer / morphometry
+    tables -- no external image-collection export needed.
+
+    Join is on (RID, VISCODE) with the screening family sc/scmri normalized to the
+    baseline (bl): the screening MRI IS the baseline timepoint. 'init' is NEVER
+    collapsed (it is the distinct ADNI3 initial visit; collapsing it was the old
+    bug that glued 2005 baseline scans onto 2017-2019 visits). Each IMAGEUID is
+    then placed on exactly ONE visit -- the one whose EXAMDATE is nearest the scan's
+    own acquisition date (so a screening scan stays on the near sc row rather than a
+    far, re-baselined bl row) -- so no scan is duplicated across visits. (A scan
+    acquired between two visits during a diagnosis transition can still sit on a
+    visit whose label differs from the diagnosis at the scan instant -- ~0.1% of
+    links -- but nothing is glued years off as the old init->bl collapse did.)
+    Deterministic: nearest scan date, then prefer bl, then earliest exam; map ties
+    broken by table priority then lowest IMAGEUID.
+    """
+    frames = []
+    for prio, (name, idcol) in enumerate(UCSF_IMAGEUID_TABLES):
+        try:
+            t = load_rda(pkg, name)
+        except FileNotFoundError:
+            continue
+        if not {"RID", "VISCODE", idcol} <= set(t.columns):
+            continue
+        iid = pd.to_numeric(t[idcol].astype(str).str.replace("I", "", regex=False),
+                            errors="coerce")
+        acq = to_dt(t["EXAMDATE"]) if "EXAMDATE" in t.columns else pd.Series(pd.NaT, index=t.index)
+        sub = pd.DataFrame({"RID": t["RID"], "VISCODE": t["VISCODE"],
+                            "IMAGEUID": iid, "SCANDATE": acq.values, "_p": prio})
+        frames.append(sub[sub["IMAGEUID"] > 0])
+
+    spine = spine.drop(columns=["IMAGEUID"], errors="ignore")
+    if not frames:
+        print("  WARNING: no UCSF imaging tables found in package; IMAGEUID left empty")
+        spine["IMAGEUID"] = np.nan
+        return spine
+
+    uni = pd.concat(frames, ignore_index=True)
+    uni["IMAGEUID"] = uni["IMAGEUID"].astype("Int64")
+
+    def scbl(s):   # screening family -> baseline; NB: 'init' is NOT collapsed
+        return s.replace({"sc": "bl", "scmri": "bl"})
+    uni["VK"] = scbl(uni["VISCODE"])
+    mp = uni.sort_values(["_p", "IMAGEUID"]).drop_duplicates(["RID", "VK"], keep="first")
+
+    spine["VK"] = scbl(spine["VISCODE"])
+    spine = spine.merge(mp[["RID", "VK", "IMAGEUID", "SCANDATE"]], on=["RID", "VK"], how="left")
+
+    # each IMAGEUID on exactly one visit: keep the row whose EXAMDATE is nearest the
+    # scan's own acquisition date (so a screening scan stays on the near sc row, not
+    # a far re-baselined bl row); fall back to prefer-bl then earliest exam when the
+    # scan date is unknown.
+    gap = (to_dt(spine["EXAMDATE"]) - spine["SCANDATE"]).abs().dt.days
+    vr = spine["VISCODE"].map({"bl": 0, "sc": 1}).fillna(2)
+    order = spine.assign(_g=gap.fillna(10 ** 9), _vr=vr,
+                         _ex=to_dt(spine["EXAMDATE"]), _i=spine.index) \
+                 .sort_values(["_g", "_vr", "_ex"])
+    keep = set(order[spine["IMAGEUID"].notna()]
+               .drop_duplicates("IMAGEUID", keep="first")["_i"])
+    drop = spine["IMAGEUID"].notna() & ~spine.index.isin(keep)
+    spine.loc[drop, "IMAGEUID"] = pd.NA
+    spine["IMAGEUID"] = pd.to_numeric(spine["IMAGEUID"], errors="coerce")  # float, NaN for missing
+    spine = spine.drop(columns=["VK", "SCANDATE"])
+    print(f"  IMAGEUID from internal UCSF tables: "
+          f"{int(spine['IMAGEUID'].notna().sum())}/{len(spine)} visit rows "
+          f"({int(spine['IMAGEUID'].nunique())} distinct scans)")
+    return spine
+
+
+def build(pkg, image_collection=None):
     # ---- spine: DXSUM (per-visit diagnosis + ids) -------------------------
     dx = load_rda(pkg, "DXSUM")
     dx = dx.rename(columns={"DIAGNOSIS": "DX", "SITEID": "SITE"})
@@ -247,55 +339,35 @@ def build(pkg, image_collection=None, imageuid_map=None):
             lambda v: v if v in MARRY_KEEP else "Unknown")
 
     # ---- IMAGEUID --------------------------------------------------------
-    # Not in ADNIMERGE2's clinical tables. Two optional sources:
-    #  (a) --imageuid-map: a (RID, VISCODE, IMAGEUID) CSV, e.g. built from the
-    #      UCSF FreeSurfer tables (the analysis-grade T1 MP-RAGE per visit).
-    #  (b) --image-collection: a LONI image-collection export (Subject/Visit/Image Data ID).
-    spine["IMAGEUID"] = np.nan
-    if imageuid_map and os.path.exists(imageuid_map):
-        # The screening MRI and the baseline visit are the same timepoint, but
-        # imaging tables and DXSUM code it differently (sc/scmri vs bl/init).
-        # Collapse that family to one key so a baseline scan links to the
-        # baseline diagnosis; all other visit codes match exactly.
-        base = {"sc", "scmri", "bl", "init"}
-        vkey = lambda s: s.where(~s.isin(base), "bl")
-        mp = pd.read_csv(imageuid_map)
-        mp["RID"] = pd.to_numeric(mp["RID"], errors="coerce").astype("Int64")
-        mp["VISCODE"] = mp["VISCODE"].astype(str).str.strip().str.lower()
-        mp["IMAGEUID"] = pd.to_numeric(mp["IMAGEUID"], errors="coerce")
-        mp = mp.dropna(subset=["IMAGEUID"])
-        mp["VKEY"] = vkey(mp["VISCODE"])
-        mp = mp.drop_duplicates(["RID", "VKEY"])
-        spine["VKEY"] = vkey(spine["VISCODE"])
-        spine = (spine.drop(columns=["IMAGEUID"])
-                      .merge(mp[["RID", "VKEY", "IMAGEUID"]], on=["RID", "VKEY"],
-                             how="left")
-                      .drop(columns="VKEY"))
-        print(f"  IMAGEUID from map: {int(spine['IMAGEUID'].notna().sum())}/{len(spine)}"
-              f" visit rows matched")
-    elif image_collection and os.path.exists(image_collection):
+    # Default: link internally from ADNIMERGE2's own UCSF FreeSurfer tables (the
+    # processed-T1 image id that keys the downloadable collection). Optional
+    # override: --image-collection, a Subject/Visit/Image Data ID mapping (e.g. a
+    # LONI export or the acquisition-date linker's output), matched on PTID+VISCODE.
+    if image_collection and os.path.exists(image_collection):
         ic = pd.read_csv(image_collection)
         cols = {c.lower(): c for c in ic.columns}
         subj = cols.get("subject") or cols.get("ptid")
         img = cols.get("image data id") or cols.get("imageuid") or cols.get("image_data_id")
         vis = cols.get("visit") or cols.get("viscode")
+        spine = spine.drop(columns=["IMAGEUID"], errors="ignore")
         if subj and img:
-            ic = ic.rename(columns={subj: "PTID", img: "IMAGEUID_NEW"})
-            ic["IMAGEUID_NEW"] = (ic["IMAGEUID_NEW"].astype(str)
-                                  .str.replace("I", "", regex=False))
-            ic["IMAGEUID_NEW"] = pd.to_numeric(ic["IMAGEUID_NEW"], errors="coerce")
+            ic = ic.rename(columns={subj: "PTID", img: "IMAGEUID"})
+            ic["IMAGEUID"] = pd.to_numeric(
+                ic["IMAGEUID"].astype(str).str.replace("I", "", regex=False), errors="coerce")
             key = ["PTID"] + (["VISCODE"] if vis else [])
             if vis:
                 ic = ic.rename(columns={vis: "VISCODE"})
                 ic["VISCODE"] = ic["VISCODE"].astype(str).str.strip().str.lower()
-            ic = ic.dropna(subset=["IMAGEUID_NEW"]).drop_duplicates(key)
-            spine = spine.merge(ic[key + ["IMAGEUID_NEW"]], on=key, how="left")
-            spine["IMAGEUID"] = spine["IMAGEUID_NEW"]
-            spine = spine.drop(columns="IMAGEUID_NEW")
-            print(f"  merged IMAGEUID for {spine['IMAGEUID'].notna().sum()} rows")
+            ic = ic.dropna(subset=["IMAGEUID"]).drop_duplicates(key)
+            spine = spine.merge(ic[key + ["IMAGEUID"]], on=key, how="left")
+            print(f"  IMAGEUID from --image-collection: "
+                  f"{int(spine['IMAGEUID'].notna().sum())}/{len(spine)} rows")
         else:
             print("  WARNING: image-collection CSV lacks Subject/Image columns; "
                   "IMAGEUID left empty")
+            spine["IMAGEUID"] = np.nan
+    else:
+        spine = link_imageuid_internal(spine, pkg)
 
     # ---- finalize ---------------------------------------------------------
     for c in ECOG_COLS:
@@ -343,17 +415,15 @@ def main():
     ap.add_argument("--out", default="data/tabular/ADNIMERGE.csv",
                     help="output ADNIMERGE.csv path")
     ap.add_argument("--image-collection", default=None,
-                    help="optional LONI image-collection CSV to merge IMAGEUID from")
-    ap.add_argument("--imageuid-map", default=None,
-                    help="optional (RID,VISCODE,IMAGEUID) CSV to merge IMAGEUID from "
-                         "(e.g. data/reference/IMAGEUID_FROM_UCSF.csv)")
+                    help="optional override: a Subject/Visit/Image Data ID CSV (LONI "
+                         "export or the acqdate linker's output) to source IMAGEUID from "
+                         "instead of the internal UCSF FreeSurfer tables")
     ap.add_argument("--selfcheck", action="store_true",
                     help="simulate the downstream preprocessing to validate")
     args = ap.parse_args()
 
     print(f"Building ADNIMERGE.csv-equivalent from {args.pkg} ...")
-    df = build(args.pkg, image_collection=args.image_collection,
-               imageuid_map=args.imageuid_map)
+    df = build(args.pkg, image_collection=args.image_collection)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     df.to_csv(args.out, index=False)
     print(f"Wrote {len(df)} rows x {len(df.columns)} cols -> {args.out}")
