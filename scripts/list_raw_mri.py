@@ -16,6 +16,10 @@ from pathlib import Path
 import pandas as pd
 
 IMAGE_DIR_RE = re.compile(r"^I\d+$")
+# ADNI subject id, e.g. 002_S_0295 (site _ S _ id). Used to find the subject
+# path segment by pattern instead of a fixed depth, so the result is correct
+# regardless of where --root points relative to the subject folders.
+SUBJECT_RE = re.compile(r"^\d{3}_S_\d{4}$")
 IMAGE_EXTS = {".nii", ".dcm"}
 
 
@@ -41,8 +45,12 @@ def list_raw_mris(root: Path, output: Path, save_every: int = 1000) -> pd.DataFr
         if not files:
             continue
 
-        # subject = first path level under root
-        subject = image_dir.relative_to(root).parts[0]
+        # subject = the path segment matching the ADNI id pattern (NNN_S_NNNN).
+        # Matching by pattern (not a fixed depth) keeps this correct whether
+        # --root is the ADNI folder or one level above it. Fall back to the
+        # first segment under root only if no segment matches.
+        rel_parts = image_dir.relative_to(root).parts
+        subject = next((p for p in rel_parts if SUBJECT_RE.match(p)), rel_parts[0])
         fmt = files[0].suffix.lower().lstrip(".")  # nii or dcm
 
         rows.append({

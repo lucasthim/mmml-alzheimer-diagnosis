@@ -1,10 +1,9 @@
-# %%
 import os
 from pathlib import Path
 import argparse
 import time
 
-import numpy as np
+import pandas as pd 
 
 import sys
 # Linux GPU fix: preload cu12 libcusolver.so.11 before TF imports (no-op off Linux).
@@ -17,19 +16,20 @@ except Exception:
     pass
 import tensorflow as tf
 
-sys.path.append("./../utils")
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
 from base_mri import *
-from utils import *
+from utils.utils import create_file_name_from_path, list_available_images, create_reference_table
+
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' #Supresses warnings, logs, infos and errors from TF. Need to use it carefully
 
 from mri_augmentation import * 
 # IGNORE THIS FILE - see mri_batch_preparation.py instead
-# %%
 
 def execute_mri_data_preparation(mri_reference_path,
-                                ensemble_reference_path,
                                 output_path,
+                                ensemble_reference_path = None,
+                                adnimerge_path = None,
                                 orientation = 'coronal',
                                 orientation_slice = 50,
                                 num_augmented_images = 5,
@@ -70,11 +70,15 @@ def execute_mri_data_preparation(mri_reference_path,
     '''
 
     df_mri_reference = pd.read_csv(mri_reference_path)
-    df_ensemble_reference = pd.read_csv(ensemble_reference_path)
-    invalid_images = df_ensemble_reference.query("CONFLICT_DIAGNOSIS == True")['IMAGEUID']
-    invalid_images = ['I'+str(x) for x in invalid_images]
-    images_to_process = df_mri_reference.query("IMAGE_DATA_ID not in @invalid_images")['IMAGE_PATH']
-
+    
+    if ensemble_reference_path is not None:
+        df_ensemble_reference = pd.read_csv(ensemble_reference_path)
+        invalid_images = df_ensemble_reference.query("CONFLICT_DIAGNOSIS == True")['IMAGEUID']
+        invalid_images = ['I'+str(x) for x in invalid_images]
+        images_to_process = df_mri_reference.query("IMAGE_DATA_ID not in @invalid_images")['IMAGE_PATH']
+    else:
+        images_to_process = df_mri_reference['IMAGE_PATH']
+    
     set_env_variables()
     start = time.time()
     # images_to_process,_,_ = list_available_images(input_path,file_format = file_format)
@@ -128,7 +132,9 @@ def execute_mri_data_preparation(mri_reference_path,
         print(f'Process for image ({ii+1}/{len(images_to_process)}) took %.2f sec) \n' % total_time_img)
 
     print("Creating new reference image table for prepared images...")
-    generate_metadata_for_processed_images(output_path,mri_reference_path)
+    # Merge diagnosis labels from ADNIMERGE (the ruling reference). Prepared-images left
+    # join keeps every slice; images absent from ADNIMERGE keep a blank MACRO_GROUP.
+    generate_metadata_for_processed_images(output_path, adnimerge_path)
     
     total_time = (time.time() - start) / 60.
     print('-------------------------------------------------------------')
@@ -139,24 +145,52 @@ def execute_mri_data_preparation(mri_reference_path,
     print('-------------------------------------------------------------')
     print('-------------------------------------------------------------')
 
-def generate_metadata_for_processed_images(output_path,mri_reference_path):
-    prepared_images,_,_ = list_available_images(output_path,file_format='.npz',verbose=0)
-    df_final_reference = create_reference_table(prepared_images,output_path = output_path,previous_reference_file_path=mri_reference_path,save=False)
-    df_final_reference.query("IMAGE_PATH == IMAGE_PATH",inplace=True)
-    df_final_reference.to_csv(output_path+'REFERENCE.csv',index=False)
+def generate_metadata_for_processed_images(output_path, adnimerge_path):
+    '''
+    Build the prepared-images REFERENCE.csv: one row per .npz slice, with the diagnosis
+    label merged in from ADNIMERGE (the ruling reference, same as mri_preprocessing.py).
 
-# %%
+    ADNIMERGE is joined on its integer IMAGEUID against the prepared IMAGE_DATA_ID
+    ('I' + IMAGEUID). The join is prepared-images (left) -> ADNIMERGE (right), so EVERY
+    prepared slice survives; images absent from ADNIMERGE (e.g. new DICOM scans not yet
+    linked) keep a blank MACRO_GROUP rather than being dropped.
+
+    ADNIMERGE's DX is CN / MCI / Dementia; we map Dementia -> AD to match the pipeline's
+    CN/AD/MCI label convention (MACRO_GROUP).
+    '''
+    prepared_images,_,_ = list_available_images(output_path,file_format='.npz',verbose=0)
+    df_prepared = create_reference_table(prepared_images, output_path=output_path, save=False)  # paths only, no merge
+
+    if adnimerge_path is not None:
+        df_adni = pd.read_csv(adnimerge_path, low_memory=False)
+        df_adni = df_adni.dropna(subset=['IMAGEUID', 'DX']).copy()
+        df_adni['IMAGE_DATA_ID'] = 'I' + df_adni['IMAGEUID'].astype(int).astype(str)
+        df_adni['MACRO_GROUP'] = df_adni['DX'].replace({'Dementia': 'AD'})
+        df_labels = df_adni[['IMAGE_DATA_ID', 'MACRO_GROUP']].drop_duplicates('IMAGE_DATA_ID')
+
+        df_final_reference = pd.merge(df_prepared, df_labels, how='left', on='IMAGE_DATA_ID')
+        labeled_imgs = df_final_reference[df_final_reference['MACRO_GROUP'].notna()]['IMAGE_DATA_ID'].nunique()
+        total_imgs = df_final_reference['IMAGE_DATA_ID'].nunique()
+        print(f"Merged ADNIMERGE labels: {labeled_imgs}/{total_imgs} images labeled "
+              f"({df_final_reference['MACRO_GROUP'].notna().sum()}/{len(df_final_reference)} slices).")
+    else:
+        df_final_reference = df_prepared
+
+    df_final_reference.to_csv(output_path+'REFERENCE.csv',index=False)
+    print(f"Prepared REFERENCE.csv saved with {len(df_final_reference)} rows -> {output_path}REFERENCE.csv")
 
 if __name__ == '__main__':
-    ensemble_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv'
-    mri_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/reference/PREPROCESSED_MRI_REFERENCE.csv'
-    output_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/mri/processed/sample/'
-    
-    execute_mri_data_preparation(mri_reference_path,
-                                ensemble_reference_path,
-                                output_path,
+    # ensemble_reference_path = '/content/gdrive/MyDrive/Lucas_Thimoteo/data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv'
+    mri_reference_path = 'data/mri/preprocessed/20260707/REFERENCE.csv'
+    adnimerge_path = 'data/tabular/ADNIMERGE.csv'
+    output_path = 'data/mri/processed/sample/'
+
+    execute_mri_data_preparation(mri_reference_path=mri_reference_path,
+                                # ensemble_reference_path,
+                                output_path=output_path,
+                                adnimerge_path=adnimerge_path,
                                 orientation = 'coronal',
                                 orientation_slice = 50,
-                                num_augmented_images = 5,
+                                num_augmented_images = 2,
                                 sampling_range = 3,
                                 file_format = '.nii.gz')
