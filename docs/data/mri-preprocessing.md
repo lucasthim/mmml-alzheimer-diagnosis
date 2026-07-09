@@ -87,8 +87,9 @@ flowchart TD
 |---|---|
 | **Input** | Raw `.nii` volumes under `input_path` (default in `__main__`: `data/mri/raw/ADNI/`). Discovered recursively by `list_available_images` (glob `*.nii`, masks excluded). |
 | **Output** | One `.nii.gz` per usable image in `output_path` (CLI default: `data/mri/preprocessed/<today>`), plus `REFERENCE.csv` in the same folder. |
-| **Signature** | `execute_preprocessing(input_path, output_path, images_to_process=None, box=100, skip=0, limit=0, mri_reference_path=None, skip_skull_stripping=False)` ([L29](../../src/data_preprocessing/mri_preprocessing.py#L29)). |
-| **CLI** | Runs as a normal script — `python src/data_preprocessing/mri_preprocessing.py [-i IN] [-o OUT] [-l N] [--skip-skull-stripping] [-r MRI_REF]` ([L142](../../src/data_preprocessing/mri_preprocessing.py#L142)). Defaults to every `.nii` under `data/mri/raw/ADNI`; the `sys.path` is `__file__`-relative so it works from any CWD. |
+| **Signature** | `execute_preprocessing(input_path, output_path, images_to_process=None, image_names=None, box=100, skip=0, limit=0, mri_reference_path=None, skip_skull_stripping=False, workers=1, threads_per_worker=None)`. |
+| **CLI** | Runs as a normal script — `python src/data_preprocessing/mri_preprocessing.py [-i IN] [-o OUT] [-l N] [--skip-skull-stripping] [-r MRI_REF] [-c REFERENCE_CSV] [-w WORKERS]`. Defaults to every `.nii` under `data/mri/raw/ADNI`; the `sys.path` is `__file__`-relative so it works from any CWD. |
+| **Parallelism** | `--workers N` (default 1 = serial) runs N `multiprocessing` worker processes over the image list. Each ANTs/DeepBrain step is already internally multi-threaded, so each worker is thread-capped to `--threads-per-worker` (default `cpu_count // workers`) via `ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS` / TF intra-op env vars, keeping total threads near the core count instead of oversubscribing. Workers use the `spawn` start method so the caps apply before ANTs/TF initialize. On a 10-core box, `-w 3` is a good start (~3× throughput). `REFERENCE.csv` is still built once at the end by re-scanning `output_path`, so it is unaffected by the number of workers. |
 
 The per-image loop ([L86](../../src/data_preprocessing/mri_preprocessing.py#L86)-L118):
 

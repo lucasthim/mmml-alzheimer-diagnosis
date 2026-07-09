@@ -5,6 +5,8 @@ import sys
 import argparse
 import time
 import datetime
+import functools
+import multiprocessing as mp
 
 import numpy as np
 import pandas as pd
@@ -17,6 +19,14 @@ try:
     preload_cusolver()
 except Exception:
     pass
+# Multi-worker GPU fix: when MRI_FORCE_CPU=1 (set by the parent for spawned workers),
+# hide the GPU BEFORE TensorFlow imports so each worker's TF runs on CPU. This avoids
+# every worker's TF reserving the whole GPU's VRAM (N processes x ~all-of-24GB -> the
+# GPU saturates and everything stalls). Skull stripping is ~0.8s on CPU anyway; the real
+# cost is CPU-bound ANTs registration (~80% of per-image time), which parallelizes across
+# workers. Must be set before `import tensorflow` to take effect.
+if os.environ.get('MRI_FORCE_CPU') == '1':
+    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 # Import TensorFlow/deepbrain before ants (ITK): both ship an OpenMP runtime and, on macOS,
 # if ITK's initializes first, TF's session.run deadlocks during skull stripping.
 import tensorflow as tf
@@ -36,7 +46,76 @@ from mri_crop import crop_mri_at_center
 from mri_standardize import clip_and_normalize_mri
 # from mri_label import label_image_files
 
-def execute_preprocessing(input_path = None,output_path = None,images_to_process = None,image_names = None,box = 100,skip = 0,limit = 0,mri_reference_path = None,skip_skull_stripping=False):
+def _limit_threads_in_worker(threads):
+    '''
+    Pool initializer: cap the per-worker thread count so N workers x threads
+    stays near the physical core count instead of each worker grabbing every core.
+
+    ITK/ANTs reads ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS per operation at runtime,
+    so setting it here (after fork, before the worker's first registration) works.
+    TensorFlow/deepbrain reads OMP_NUM_THREADS and the intra/inter-op env vars when
+    it builds its session, which happens lazily on the worker's first ext.run().
+    '''
+    threads = str(int(threads))
+    os.environ['ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS'] = threads
+    os.environ['OMP_NUM_THREADS'] = threads
+    os.environ['TF_NUM_INTRAOP_THREADS'] = threads
+    os.environ['TF_NUM_INTEROP_THREADS'] = '1'
+    os.environ['OPENBLAS_NUM_THREADS'] = threads
+    os.environ['MKL_NUM_THREADS'] = threads
+
+
+def _process_one_image(job, output_path, box, skip_skull_stripping, total):
+    '''
+    Preprocess a single MRI end-to-end and save it. Module-level (picklable) so it
+    can run inside a multiprocessing Pool. `job` is (index, image_path, output_name).
+
+    Returns (index, image_path, saved_bool) for progress accounting. Exceptions are
+    caught and reported rather than killing the whole pool, so one bad scan doesn't
+    abort a multi-hour batch.
+    '''
+    ii, image_path, output_name = job
+    start_img = time.time()
+    try:
+        input_image = load_mri(path=image_path)
+        print(f"\nProcessing image ({ii+1}/{total}): {image_path}")
+
+        standardized_image = clip_and_normalize_mri(input_image)
+        registered_image = register_image_with_atlas(standardized_image)
+
+        if not skip_skull_stripping:
+            stripped_image = deep_brain_skull_stripping(image=registered_image, probability=0.5, output_as_array=False)
+        else:
+            stripped_image = registered_image
+
+        cropped_image = crop_mri_at_center(image=stripped_image, cropping_box=box)
+
+        if check_mri_integrity(cropped_image):
+            name = output_name if output_name is not None else create_file_name_from_path(image_path)
+            save_mri(image=cropped_image, output_path=output_path, name=name, file_format='.nii.gz')
+            saved = True
+        else:
+            print(f"Skipping image ({ii+1}/{total}) because skull stripping failed: {image_path}")
+            saved = False
+    except Exception as e:
+        print(f"ERROR on image ({ii+1}/{total}) {image_path}: {type(e).__name__}: {e}")
+        saved = False
+
+    print('Process for image (%d/%d) took %.2f sec\n' % (ii+1, total, time.time() - start_img))
+    return ii, image_path, saved
+
+
+def execute_preprocessing(input_path = None,
+                          output_path = None,
+                          images_to_process = None,
+                          image_names = None,
+                          box = 100,
+                          skip = 0,
+                          limit = 0,
+                          mri_reference_path = None,
+                          skip_skull_stripping=False,
+                          workers = 1,
+                          threads_per_worker = None):
 
     '''
     MRI Preprocessing pipeline.
@@ -104,42 +183,47 @@ def execute_preprocessing(input_path = None,output_path = None,images_to_process
     if not os.path.exists(output_path):
         print("Creating output path... \n")
         os.makedirs(output_path)
-    
-    for ii,image_path in enumerate(images_to_process):
-        
-        start_img = time.time()
-        input_image = load_mri(path=image_path)
-        print('\n-------------------------------------------------------------------------------------------------------------------')
-        print(f"Processing image ({ii+1}/{len(images_to_process)}):",image_path)
 
-        print("Standardizing image based on Atlas...")
-        standardized_image = clip_and_normalize_mri(input_image)
+    total = len(images_to_process)
+    # One job per image: (index, input_path, output_name-or-None).
+    jobs = [
+        (ii, image_path, (image_names[ii] if image_names is not None else None))
+        for ii, image_path in enumerate(images_to_process)
+    ]
+    worker = functools.partial(
+        _process_one_image,
+        output_path=output_path,
+        box=box,
+        skip_skull_stripping=skip_skull_stripping,
+        total=total,
+    )
 
-        print("Registering image to Atlas...")
-        registered_image: ants.ANTsImage = register_image_with_atlas(standardized_image)
-        
-        if not skip_skull_stripping:
-            print("Stripping skull from image...")
-            stripped_image: ants.ANTsImage = deep_brain_skull_stripping(image=registered_image, probability = 0.5,output_as_array=False)
-        else:
-            print("Skipping skull stripping step...")
-            stripped_image = registered_image
+    if workers is None or workers <= 1:
+        # Serial path (unchanged behavior).
+        for job in jobs:
+            worker(job)
+    else:
+        # Parallel path: N worker processes, each capped so N x threads ~= cores.
+        if threads_per_worker is None:
+            cpu = os.cpu_count() or 1
+            threads_per_worker = max(1, cpu // workers)
+        print(f"Running preprocessing with {workers} workers x {threads_per_worker} threads each "
+              f"(~{workers * threads_per_worker} threads over {os.cpu_count()} cores). "
+              f"Workers run skull-strip on CPU (GPU hidden) to avoid VRAM contention.")
+        ctx = mp.get_context('spawn')  # fresh interpreter per worker: thread caps + CPU-only take effect before ants/TF init
+        # Children inherit os.environ; MRI_FORCE_CPU=1 makes each worker's TF hide the GPU
+        # (set at module top, before `import tensorflow`), so N workers don't fight over VRAM.
+        os.environ['MRI_FORCE_CPU'] = '1'
+        with ctx.Pool(processes=workers,
+                      initializer=_limit_threads_in_worker,
+                      initargs=(threads_per_worker,)) as pool:
+            done = 0
+            # imap_unordered streams results back so progress prints as images finish, in any order.
+            for ii, image_path, saved in pool.imap_unordered(worker, jobs):
+                done += 1
+                if done % 25 == 0 or done == total:
+                    print(f"[progress] {done}/{total} images finished.")
 
-        print("Cropping image with bounding box 100x100x100...")
-        cropped_image: ants.ANTsImage = crop_mri_at_center(image=stripped_image,cropping_box=box)
-
-        print("Checking if image is usable...")
-        integrity_check = check_mri_integrity(cropped_image)
-        if integrity_check:
-            print("Saving final image...")
-            output_name = image_names[ii] if image_names is not None else create_file_name_from_path(image_path)
-            save_mri(image=cropped_image, output_path = output_path,name= output_name,file_format='.nii.gz')
-        else:
-            print("Skipping current image because skull stripping process failed!")
-        
-        total_time_img = (time.time() - start_img)
-        print(f'Process for image ({ii+1}/{len(images_to_process)}) took %.2f sec) \n' % total_time_img)
-    
     print("Creating new reference image table for preprocessed images...")
     generate_metadata_for_preprocessed_images(output_path,mri_reference_path)
     
@@ -276,6 +360,23 @@ if __name__ == '__main__':
                         help='Optional ADNIMERGE.csv path. When given with --reference-csv, keeps only scans whose '
                              'IMAGE_DATA_ID matches an ADNIMERGE IMAGEUID before preprocessing.')
 
+    arg_parser.add_argument('-w', '--workers',
+                        metavar='workers',
+                        type=int,
+                        required=False,
+                        default=1,
+                        help='Number of parallel worker processes (1 = serial, default). Each image already '
+                             'uses many cores internally, so total threads = workers x threads-per-worker is '
+                             'held near the core count. On a 10-core box, 3 is a good start.')
+
+    arg_parser.add_argument('--threads-per-worker',
+                        metavar='threads_per_worker',
+                        type=int,
+                        required=False,
+                        default=None,
+                        help='Threads each worker may use for ANTs/TF (default: cpu_count // workers). '
+                             'Lower this if the machine gets sluggish; raise it if cores sit idle.')
+
     args = arg_parser.parse_args()
 
     images_to_process = None
@@ -295,4 +396,6 @@ if __name__ == '__main__':
         limit=args.limit,
         mri_reference_path=args.mri_reference,
         skip_skull_stripping=args.skip_skull_stripping,
+        workers=args.workers,
+        threads_per_worker=args.threads_per_worker,
     )

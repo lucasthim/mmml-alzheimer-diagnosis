@@ -23,8 +23,7 @@ flowchart TD
     E --> G["Step 5: mri_preprocessing.execute_preprocessing<br/>register/skull-strip/crop/standardize → .nii.gz + REFERENCE.csv"]
     F --> G
     G --> H["Step 5b: mri_metadata_preprocessing (after)<br/>→ PREPROCESSED_MRI_REFERENCE.csv"]
-    B --> I["Step 6: ensemble_preprocessing<br/>→ PREPROCESSED_ENSEMBLE_REFERENCE.csv"]
-    H --> I
+    B --> I["Step 6: ensemble_preprocessing (2026: cognitive-only)<br/>→ PREPROCESSED_ENSEMBLE_REFERENCE.csv"]
     I --> J["Step 7: ensemble_preparation<br/>→ PROCESSED_ENSEMBLE_REFERENCE.csv (DATASET split, seed 151)"]
     H --> K["Step 8: mri_batch_preparation<br/>3D→2D .npz slices + PROCESSED_MRI_REFERENCE_*.csv"]
     J --> K
@@ -38,6 +37,90 @@ flowchart TD
 ```
 
 The dotted truth: steps 4, 5b, 7, 11 are driven by importing functions or editing notebook cells; steps 2, 3a, 5, and 6 have working CLIs (3a `mri_selection` and 5 `mri_preprocessing` were fixed in 2026). See [the gotchas table](#must-fix-before-you-run-anything) for which ones still crash if invoked as `__main__`.
+
+---
+
+## Generate the training data (Steps 1–8)
+
+**If all you want is training-ready data, this section is the whole job.** Steps 1–8 turn raw
+ADNI into the tables and slice files the models consume; Steps 9–13 (further below) are model
+training, evaluation, and explanation — a separate phase you only reach *after* this.
+
+The work runs on **two parallel tracks** that rejoin at Step 6:
+
+- **Tabular track:** Step 2 (cognitive preprocessing).
+- **Imaging track:** Steps 3a → 3b → 3c → 5 → 5b (select, download, unzip, 3D-preprocess, concat metadata).
+- **They rejoin** at Step 6–7 (build + split the ensemble reference) and Step 8 (2D slices).
+
+**The milestone to aim for is Step 7** — the `DATASET` (train/validation/test) split it writes is
+what "the training data is now defined" actually means; every downstream model shares it.
+
+### Ordered commands (run from the repo root)
+
+Each line links to its full step below (inputs, outputs, gotchas). Paths use the repo-relative
+`data/` layout.
+
+```bash
+# 1. Rebuild ADNIMERGE.csv from the ADNIMERGE2 R package  (both tracks)
+python3 scripts/rebuild_adnimerge_from_adnimerge2.py \
+    --pkg data/ADNIMERGE2 --out data/tabular/ADNIMERGE.csv \
+    --imageuid-map data/reference/IMAGEUID_FROM_UCSF.csv --selfcheck
+
+# 2. Cognitive / tabular preprocessing  (tabular track)
+python src/data_preprocessing/cognitive_tests_preprocessing.py \
+    -i data/tabular/ -o data/tabular/
+
+# 3a. MRI selection — build the download list  (imaging track)
+python src/data_preprocessing/mri_selection.py -cl 0 1
+
+# 3b–3c. MANUAL: download NIfTI + export metadata CSVs from ADNI, then unzip.
+#         (ADNI Advanced Image Search; see Step 3b / data-acquisition.md)
+bash src/utils/extract_zip.sh          # fix its hardcoded path first
+
+# 4. MRI metadata (raw side) — import & call (CLI is broken)
+python -c "import sys; sys.path.insert(0,'src/data_preprocessing'); \
+    from mri_metadata_preprocessing import execute_mri_metadata_preprocessing_prior_to_image_preprocessing as f; f()"
+
+# 5. MRI 3D preprocessing — register / skull-strip / crop / standardize
+# Add -w N to run N parallel workers (each internally thread-capped so total
+# threads stay near the core count). On a 10-core machine, -w 3 ~= 3x throughput.
+uv run python src/data_preprocessing/mri_preprocessing.py \
+    --reference-csv data/reference/DOWNLOAD_RAW_MRI.csv \
+    --adnimerge data/tabular/ADNIMERGE.csv \
+    --output data/mri/preprocessed/$(date +%Y%m%d) \
+    -w 3
+
+# 5b. MRI metadata (preprocessed side) — edit the hardcoded REFERENCE.csv list, then import & call
+python -c "import sys; sys.path.insert(0,'src/data_preprocessing'); \
+    from mri_metadata_preprocessing import execute_mri_metadata_preprocessing_after_image_preprocessing as f; f()"
+
+# 6. Ensemble preprocessing — build the ensemble reference  (tracks rejoin)
+#    2026: reads ONLY the cognitive table; no MRI reference needed.
+python src/data_preprocessing/ensemble_preprocessing.py \
+    --cognitive data/tabular/COGNITIVE_DATA_PREPROCESSED.csv \
+    --output data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv \
+    --downloaded-mri-reference data/reference/DOWNLOAD_RAW_MRI.csv \
+    --classes 0 1
+
+# 7. Ensemble preparation — assign train / validation / test  ← DATASET split (the milestone)
+python -c "import sys; sys.path.insert(0,'src/data_preparation'); \
+    from ensemble_preparation import execute_ensemble_preparation as f; \
+    f('data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv', 'data/tabular/PROCESSED_ENSEMBLE_REFERENCE.csv', classes=[0,1])"
+
+# 8. MRI 3D→2D preparation — slice + augment  (fix the two known bugs first)
+#    Driven from a notebook; execute_mri_batch_preparation(...). See Step 8.
+```
+
+> **2026 note — Step 6 no longer depends on Step 5b.** After the `ensemble_preprocessing.py`
+> rewrite, the ensemble reference is built from the cognitive table alone (single diagnosis
+> source), so Step 6 does **not** consume `PREPROCESSED_MRI_REFERENCE.csv`. You still need
+> Step 5b's output for **Step 8** (`mri_batch_preparation`), which reads the preprocessed-MRI
+> metadata. The "at a glance" diagram above still draws the old 5b→6 edge — treat it as 5b→8.
+
+The per-step detail (exact I/O, argument meanings, and the bugs to patch) follows. Steps 9–13
+(training/eval/XAI) begin at [Step 9](#step-9--cnn-training-per-orientation--slice).
+
+---
 
 ## Step 0 — Access, environment, atlas
 

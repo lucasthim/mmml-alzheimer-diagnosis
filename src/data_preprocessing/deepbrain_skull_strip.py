@@ -14,6 +14,8 @@ try:  # antspyx >=0.4 moved ANTsImage out of the top-level namespace
 except ImportError:  # older antspyx exposed it as ants.ANTsImage
     from ants import ANTsImage
 
+ext = Extractor()
+
 def deep_brain_skull_stripping(image: ANTsImage, probability = 0.5, output_as_array=True,get_mask=False) -> ANTsImage:
     
     '''
@@ -49,7 +51,6 @@ def deep_brain_skull_stripping(image: ANTsImage, probability = 0.5, output_as_ar
     else:
         image_direction = None
     
-    ext = Extractor()
     print("Running DeepBrain Skull Stripping...")
     prob = ext.run(image) 
     mask = prob > probability
@@ -70,4 +71,5 @@ def deep_brain_skull_stripping(image: ANTsImage, probability = 0.5, output_as_ar
     if image_direction is not None:
         return ants.from_numpy(final_img,direction=image_direction)
     return ants.from_numpy(final_img)
+
     
