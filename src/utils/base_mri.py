@@ -11,6 +11,53 @@ if not hasattr(ants, 'ANTsImage'):
     from ants.core.ants_image import ANTsImage as _ANTsImage
     ants.ANTsImage = _ANTsImage
 
+# Reorient DICOM volumes to match the .nii scans (SAR), so registration sees both
+# modalities in the same frame. See load_dicom_series.
+DICOM_TARGET_ORIENTATION = 'SAR'
+
+
+def load_dicom_series(path: str, target_orientation: str = DICOM_TARGET_ORIENTATION) -> "ants.ANTsImage":
+    '''
+    Read a DICOM series folder as a single, spatially-correct 3D ANTsImage.
+
+    Why not ants.dicom_read: it stacks the frames in file/instance order without
+    sorting on ImagePositionPatient. ADNI accelerated MPRAGE series store slices out
+    of spatial order, so ants.dicom_read produces a shredded/striped volume. We read
+    with SimpleITK's ImageSeriesReader, which sorts frames by geometry, hand the
+    volume (with its spacing/origin/direction) to ANTs, then reorient to
+    target_orientation so DICOM output matches the .nii scans (SAR).
+    '''
+    import SimpleITK as sitk
+
+    if not os.path.isdir(path):
+        path = os.path.dirname(path)  # a .dcm file was passed; use its series folder
+
+    reader = sitk.ImageSeriesReader()
+    series_files = reader.GetGDCMSeriesFileNames(path)
+    if not series_files:
+        raise ValueError(f"No DICOM series found in {path}")
+    reader.SetFileNames(series_files)
+    sitk_img = reader.Execute()
+
+    # Some ADNI scans are 4D DICOM (a multiframe/enhanced series read as e.g.
+    # 256x256x211x1). Drop the trailing singleton so the volume is 3D before we read
+    # its geometry (a 4D image also has 4D spacing/direction).
+    if sitk_img.GetDimension() == 4:
+        size = list(sitk_img.GetSize())
+        if size[3] != 1:
+            raise ValueError(f"4D DICOM with {size[3]} volumes (expected 1) in {path}")
+        sitk_img = sitk.Extract(sitk_img, size[:3] + [0], [0, 0, 0, 0])
+
+    # SimpleITK array is (z, y, x); ANTs expects (x, y, z), so transpose axes.
+    arr = np.transpose(sitk.GetArrayFromImage(sitk_img), (2, 1, 0)).astype('float32')
+    img = ants.from_numpy(
+        arr,
+        spacing=tuple(sitk_img.GetSpacing()),
+        origin=tuple(sitk_img.GetOrigin()),
+        direction=np.array(sitk_img.GetDirection()).reshape(3, 3),
+    )
+    return ants.reorient_image2(img, target_orientation)
+
 def save_batch_mri(image_references:Union[np.ndarray, ants.ANTsImage],name:str = None,output_path:str = None,file_format:str = '.npz',verbose=0):
 
     '''
@@ -82,12 +129,11 @@ def load_mri(path:str,as_ants=False):
         if as_ants: img = ants.from_numpy(img)
         return img
 
-    # DICOM: ADNI stores one scan as many .dcm slices in an I<id> folder.
-    # Read the whole folder as a single 3D volume.
-    if os.path.isdir(path):
-        return ants.dicom_read(path)
-    if path.lower().endswith(".dcm"):
-        return ants.dicom_read(os.path.dirname(path))
+    # DICOM: ADNI stores one scan as many .dcm slices in an I<id> folder. Read the
+    # whole folder as a single, spatially-sorted 3D volume (see load_dicom_series;
+    # ants.dicom_read does not sort by ImagePositionPatient and shreds these series).
+    if os.path.isdir(path) or path.lower().endswith(".dcm"):
+        return load_dicom_series(path)
 
     return ants.image_read(path)
 
