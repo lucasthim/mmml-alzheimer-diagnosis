@@ -52,8 +52,8 @@ def train_test_split_by_subject(df,test_size = 0.3,labels = ['AD','CN'],label_co
         test_subjects = subjects[:test_subjects_quantity]
         train_subjects = subjects[test_subjects_quantity:]
         
-        df_train_cl = df_classes.query("SUBJECT in @train_subjects")
-        df_test_cl = df_classes.query("SUBJECT in @test_subjects")
+        df_train_cl = df_classes.query(label_column + " == @label and SUBJECT in @train_subjects")
+        df_test_cl = df_classes.query(label_column + " == @label and SUBJECT in @test_subjects")
         train.append(df_train_cl)
         test.append(df_test_cl)
 

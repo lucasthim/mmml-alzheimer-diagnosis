@@ -100,8 +100,8 @@ def execute_mri_batch_preparation(mri_reference_path,
        'IMAGE_PATH', 'ORIGINAL_IMAGE_PATH', 'DATASET']]
     df_mri_processed_reference.to_csv(mri_reference_path+reference_file_name,index=False)
     print("Processed MRI reference file saved at:",mri_reference_path+reference_file_name)
-    
-    return output_path+reference_file_name
+
+    return mri_reference_path+reference_file_name
 
 def generate_slices(image_id,image_path,orientation,slice_indices):
     '''
@@ -205,7 +205,7 @@ def save_slices(slices, output_path):
     if not os.path.exists(output): os.makedirs(output)
 
     for slice in slices:
-        slice_num = str(slice['SLICE']) if slice['SLICE'] < 10 else '0'+str(slice['SLICE'])
+        slice_num = str(slice['SLICE']) if slice['SLICE'] >= 10 else '0'+str(slice['SLICE'])
         mri_name = slice['ORIENTATION'] + '_' + slice_num
         slice['VALID_IMAGE'] = validate_slice(image=slice['SLICE_DATA'])
         if slice['VALID_IMAGE']:

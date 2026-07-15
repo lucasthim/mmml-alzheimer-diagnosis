@@ -403,18 +403,12 @@ def train(train_dataloader,
         if early_stopping_epochs > 0:
             if early_stopping_marker == early_stopping_epochs:
                 print("\nExiting training... It hit early stopping criteria of:",early_stopping_epochs,'epochs')
-                
-                if model_path != '':
-                    final_model_path = model_path + model_name + '.pth'
-                    print("Saving model at:",final_model_path)
-                    torch.save(best_model_params, final_model_path)
                 break
 
-        if (best_epoch) == max_epochs:
-            if model_path != '':
-                final_model_path = model_path + model_name + '.pth'
-                print("Saving model at:",final_model_path)
-                torch.save(best_model_params, final_model_path)
+    if model_path != '':
+        final_model_path = model_path + model_name + '.pth'
+        print("Saving model at:",final_model_path)
+        torch.save(best_model_params, final_model_path)
 
     print('\n-------------------------------')
     plot_metric(metric='Loss',train_metric=train_losses,validation_metric= validation_losses)    

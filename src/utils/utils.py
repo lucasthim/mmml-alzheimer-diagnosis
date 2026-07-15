@@ -79,7 +79,7 @@ def load_reference_table(path = "/home/lucasthim1/mmml-alzheimer-diagnosis/data/
         df = pd.read_csv(path,engine='python')
     df.columns = [x.replace(' ','_').upper() for x in df.columns]
     
-    if 'MACRO_GROUP' not in df.columns:
+    if 'MACRO_GROUP' not in df.columns and 'GROUP' in df.columns:
         df['MACRO_GROUP'] = df['GROUP']
         df.loc[df['MACRO_GROUP'] == 'SMC','MACRO_GROUP'] = 'CN'
         df.loc[df['MACRO_GROUP'] == 'EMCI','MACRO_GROUP'] = 'MCI'
