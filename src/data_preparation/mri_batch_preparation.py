@@ -149,7 +149,7 @@ def slice_axial(image_id, image_path, orientation, slice_indices, image_3d):
     PS: Since ANTsImage to Numpy convertion makes the image lose the reference, we rotate it some times to the correct the axis visualization.
     
     '''
-    rot = np.rot90(image_3d, k=3, axes=(0,1)).copy()        
+    rot = np.rot90(image_3d, k=1, axes=(0,1)).copy()        
     return  [{
                 'IMAGE_DATA_ID':image_id,
                 'ORIENTATION': orientation,
@@ -165,7 +165,7 @@ def slice_coronal(image_id, image_path, orientation, slice_indices, image_3d):
     PS: Since ANTsImage to Numpy convertion makes the image lose the reference, we rotate it some times to the correct the axis visualization.
     
     '''
-    rot = np.rot90(image_3d, k=3, axes=(0,2)).copy()
+    rot = np.rot90(image_3d, k=1, axes=(0,2)).copy()
     return  [{
                 'IMAGE_DATA_ID':image_id,
                 'ORIENTATION': orientation,
@@ -181,8 +181,8 @@ def slice_sagittal(image_id, image_path, orientation, slice_indices, image_3d):
     PS: Since ANTsImage to Numpy convertion makes the image lose the reference, we rotate it some times to the correct the axis visualization.
     
     '''
-    rot = np.rot90(image_3d, k=3, axes=(1,2)).copy()
-    rot = np.rot90(rot, k=2, axes=(0,2)).copy()
+    rot = np.rot90(image_3d, k=1, axes=(1,2)).copy()
+    # rot = np.rot90(rot, k=2, axes=(0,2)).copy()
     return  [{
                 'IMAGE_DATA_ID':image_id,
                 'ORIENTATION': orientation,

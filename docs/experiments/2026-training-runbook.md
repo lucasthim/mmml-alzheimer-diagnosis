@@ -10,107 +10,85 @@ prior sessions. Read
 catalogue, and why each step exists — this doc only carries the parts that differ or need to be made
 concrete for this run.
 
+## The data-generation flow (2026 re-run)
+
+For this re-run the training-data pipeline collapses to **three** commands:
+
+1. **MRI preprocessing** — [mri_preprocessing.py](../../src/data_preprocessing/mri_preprocessing.py) (Step 5) → atlas-registered, skull-stripped, cropped `.nii.gz` volumes.
+2. **Ensemble preprocessing + preparation** — [ensemble_preprocessing.py](../../src/data_preprocessing/ensemble_preprocessing.py) (Step 6) then [ensemble_preparation.py](../../src/data_preparation/ensemble_preparation.py) (Step 7) → the `DATASET` train/val/test split. Cognitive-derived, so **atlas-independent** — not affected by the Step 5 re-run.
+3. **Slice preparation** — [run_slice_preparation.py](../../src/data_preparation/run_slice_preparation.py) → folds the old Steps 5b + 8 into one runner (enrich labels, cut the 6 slices, backfill `DATASET`).
+
+Then Steps 9 → 13 (train / evaluate / explain).
+
 ## Where this run stands
+
+> **Atlas fix (2026-07-22).** The earlier runs used ANTsPy's MNI152 fallback, not the study's real
+> `atlas_t1.nii` — registration was off and CNN AUCs suffered. The true atlas is now at
+> `data/mri/atlas/atlas_t1.nii`, and Step 5 was re-run against it. This **invalidates the old 3D volumes
+> and the slices derived from them** (Steps 5 and 8), so both are being regenerated. Steps 6–7 are
+> cognitive-derived and unaffected.
 
 Done:
 
 - **Step 1** — `data/tabular/ADNIMERGE.csv` rebuilt from ADNIMERGE2.
 - **Step 2** — [cognitive_tests_preprocessing.py](../../src/data_preprocessing/cognitive_tests_preprocessing.py) run → `data/tabular/COGNITIVE_DATA_PREPROCESSED.csv`.
 - **Step 3a–3c** — MRIs already downloaded and unzipped under `/mnt/d/lucas/Downloads/raw/ADNI`.
-- **Step 5** — [mri_preprocessing.py](../../src/data_preprocessing/mri_preprocessing.py) re-run against
-  `data/reference/REPROCESS_MRI_REFERENCE.csv` (all DICOM-sourced scans, since that batch was corrupted,
-  plus the handful of never-processed NIfTI scans). Output spans **three** dated folders that all matter
-  for Step 5b: `/mnt/d/lucas/Downloads/preprocessed/20260707`, `20260708`, `20260709`.
-- **Step 5b** — see corrected recipe below; done.
-- **Step 6** — already run before this session, but with `--classes 0 1 2` (not the `0 1` shown
-  originally in this doc) — `data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv` covers CN/AD/MCI
-  (911/179/672 rows). Kept as-is rather than re-running with `0 1`, since one combined reference
-  covering both cohorts is simpler for Step 8 (see below).
-- **Step 7** — run with `classes=[0,1,2]` to match Step 6's scope → `data/tabular/PROCESSED_ENSEMBLE_REFERENCE.csv`
-  (train 861 / validation 455 / test 446, across all three classes, after fixing the train/test leakage
-  bug — see below).
-- **Step 8** — done → `data/reference/PROCESSED_MRI_REFERENCE_ALL_ORIENTATIONS_20260710_1413.csv`
-  (43722 rows = 2 classes × 3 orientations × 7287 images; `DATASET` = train for every image outside the
-  ensemble's cognitively-complete cohort, validation/test unchanged); see corrected recipe below.
+- **Step 5** — [mri_preprocessing.py](../../src/data_preprocessing/mri_preprocessing.py) **re-run 2026-07-22
+  with the true registration atlas** over all ADNIMERGE-matched scans (`--reference-csv DOWNLOAD_RAW_MRI.csv
+  --adnimerge ADNIMERGE.csv`). Output is a **single** clean folder
+  `/mnt/d/lucas/Downloads/preprocessed/20260722/` (**7279 images, 0 missing, 0 duplicate IMAGE_DATA_IDs**).
+  This **supersedes** the earlier bad-atlas output (`20260707/08/09`) — the multi-folder concat + newest-first
+  dedup that the old Step 5b needed no longer applies.
+- **Step 6** — run with `--classes 0 1 2` (not `0 1`) → `data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv`
+  covers CN/AD/MCI (911/179/672 rows). One combined reference covering all cohorts is simpler for Step 8.
+  Cognitive-derived → **still valid after the atlas re-run**, not regenerated.
+- **Step 7** — run with `classes=[0,1,2]` → `data/tabular/PROCESSED_ENSEMBLE_REFERENCE.csv`
+  (train 861 / validation 455 / test 446, after fixing the train/test leakage bug — see below).
+  Cognitive-derived → **still valid**, not regenerated.
+
+To run (regenerating slices on the atlas-fixed volumes):
+
+- **Steps 5b + 8** — now combined in [run_slice_preparation.py](../../src/data_preparation/run_slice_preparation.py)
+  → enrich labels from cognitive data, cut the 6 slices in one call, backfill `DATASET`, write the
+  `PROCESSED_MRI_REFERENCE_ALL_ORIENTATIONS_<ts>.csv` training master. Supersedes the old
+  `PROCESSED_MRI_REFERENCE_ALL_ORIENTATIONS_20260710_1413.csv`. See the combined recipe below.
 
 **Skippable:** Step 4 (`RAW_MRI_REFERENCE.csv`) — the 2026 rewrite of `ensemble_preprocessing.py` no
 longer reconciles MRI-side `GROUP` against cognitive `DX` (single diagnosis source now), so nothing
 downstream reads Step 4's output anymore.
 
-Remaining: Step 9 → 10 → 11 → 12 → 13, detailed below.
+Remaining: run Step 5b+8 ([run_slice_preparation.py](../../src/data_preparation/run_slice_preparation.py)), then Step 9 → 10 → 11 → 12 → 13, detailed below.
 
 ---
 
-## Step 5b — Concat metadata + backfill labels
+## Step 5b — Backfill labels (now inside run_slice_preparation.py)
 
-**Correction from the original plan:** the labels (`GROUP`/`MACRO_GROUP`/`SEX`/`AGE`) needed by
+Step 5b is no longer a standalone step — it is `build_enriched_reference()` in
+[run_slice_preparation.py](../../src/data_preparation/run_slice_preparation.py), run automatically
+before slicing. It exists because the labels (`SUBJECT`/`GROUP`/`MACRO_GROUP`/`SEX`/`AGE`) needed by
 [mri_batch_preparation.py:98-100](../../src/data_preparation/mri_batch_preparation.py#L98-L100) are
-**not** written by `mri_preprocessing.py` unless `-r/--mri-reference` was passed (it wasn't, for this
-run). Checked three candidate sources for backfilling them against the 3310 IMAGE_DATA_IDs in the
-reprocessing batch:
+**not** written by `mri_preprocessing.py` unless `-r/--mri-reference` is passed (it wasn't). The raw
+`REFERENCE.csv` carries only `SUBJECT_IMAGE_ID, SUBJECT_ID, IMAGE_DATA_ID, IMAGE_PATH`.
 
-| Source | Missing IMAGE_DATA_IDs |
+**Source: `COGNITIVE_DATA_PREPROCESSED.csv`.** Of the three candidates checked, only it has full coverage:
+
+| Source | Missing IMAGE_DATA_IDs (of 7279) |
 |---|---|
 | `data/reference/REFERENCE_TABLE_FOR_MRI.csv` (LONI collection exports) | 75 — stale, pre-dates the latest MRI downloads |
-| `data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv` | 1549 — already filtered to `classes=[0,1]` and to patients with complete cognitive data |
+| `data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv` | 1549 — filtered to complete-cognitive-data patients |
 | `data/tabular/COGNITIVE_DATA_PREPROCESSED.csv` | **0** — ADNIMERGE-derived, full coverage |
 
-Use `COGNITIVE_DATA_PREPROCESSED.csv`. One more subtlety: `MACRO_GROUP` must be the **string** labels
-`'CN'/'AD'/'MCI'`, not the numeric `DIAGNOSIS` encoding (`0/1/2`). `MACRO_GROUP == 'MCI'` remap
-happens later; if `MACRO_GROUP` is already numeric, [return_sets()](../../src/model_training/mri_train.py#L315-L334)'s remap silently no-ops and an MCIxCN run would incorrectly keep AD rows instead of MCI
-rows. `GROUP` and `SEX` are confirmed (by grep) never read downstream — they only need to exist to
-satisfy the hardcoded column selection. **`SUBJECT` also needs backfilling** — it's part of the same
-hardcoded column selection at [mri_batch_preparation.py:98-100](../../src/data_preparation/mri_batch_preparation.py#L98-L100)
-but wasn't in the original candidate check; pull it from `COGNITIVE_DATA_PREPROCESSED.csv` alongside
-the rest.
+**Critical subtlety — `MACRO_GROUP` must be the STRING labels `'CN'/'AD'/'MCI'`**, not the numeric
+`DIAGNOSIS` encoding. The `'MCI'` remap in [return_sets()](../../src/model_training/mri_train.py#L315-L334)
+happens later; if `MACRO_GROUP` is already numeric, that remap silently no-ops and an MCIxCN run keeps
+AD rows instead of MCI rows. `GROUP` and `SEX` are never read downstream (grep-confirmed) — they exist
+only to satisfy the hardcoded column selection; the runner sets `GROUP = MACRO_GROUP`, `SEX = MALE`.
 
-**Three more issues only surfaced by actually running this against the real files:**
-
-1. `load_reference_table()` ([utils.py:82](../../src/utils/utils.py#L82)) unconditionally did
-   `df['MACRO_GROUP'] = df['GROUP']` when `MACRO_GROUP` was missing — but the raw `REFERENCE.csv` files
-   have *neither* column (`SUBJECT_IMAGE_ID, SUBJECT_ID, IMAGE_DATA_ID, IMAGE_PATH` only, since
-   `mri_preprocessing.py` wasn't run with `-r/--mri-reference`), so this raised `KeyError: 'GROUP'` and
-   `execute_mri_metadata_preprocessing` never got past reading the first file. Fixed to only backfill
-   when `GROUP` is actually present: `if 'MACRO_GROUP' not in df.columns and 'GROUP' in df.columns:`.
-2. **List the three dated folders newest-first**, not chronologically. The 20260707 batch was corrupted
-   (see Step 5 above) and some of its images were silently reprocessed again on 20260709 under the
-   *same* `IMAGE_DATA_ID` but a different `IMAGE_PATH` — 2676 such duplicate IDs across the three
-   files. `execute_mri_metadata_preprocessing`'s dedup keeps the *first* occurrence per `IMAGE_DATA_ID`
-   in input order, so feeding the folders oldest-first keeps the stale 20260707 path even where the
-   physical file no longer exists on disk. Feeding them as `[20260709, 20260708, 20260707]` makes the
-   corrected/latest reprocessing win.
-3. Even newest-first, **7 of 7294 rows still point at files that don't exist anywhere** (verified with
-   `find` — genuinely lost, not superseded). Drop rows failing `os.path.exists(IMAGE_PATH)` before
-   handing the reference to Step 8, or `load_mri` crashes on them.
-
-```python
-import sys; sys.path.insert(0, 'src/data_preprocessing')
-from mri_metadata_preprocessing import execute_mri_metadata_preprocessing
-import pandas as pd, os
-
-df = execute_mri_metadata_preprocessing(
-    input=['/mnt/d/lucas/Downloads/preprocessed/20260709/REFERENCE.csv',   # newest first — see note 2 above
-           '/mnt/d/lucas/Downloads/preprocessed/20260708/REFERENCE.csv',
-           '/mnt/d/lucas/Downloads/preprocessed/20260707/REFERENCE.csv'],
-    output='data/reference/PREPROCESSED_MRI_REFERENCE.csv',
-    drop_cols=['FORMAT','TYPE','UNIQUE_IMAGE_ID','MODALITY','DOWNLOADED','SUBJECT_ID'])
-
-df_cog = pd.read_csv('data/tabular/COGNITIVE_DATA_PREPROCESSED.csv', low_memory=False)
-df_cog['IMAGE_DATA_ID'] = 'I' + df_cog['IMAGEUID'].astype(int).astype(str)
-label_map = {0: 'CN', 1: 'AD', 2: 'MCI'}
-df_cog['MACRO_GROUP'] = df_cog['DIAGNOSIS'].map(label_map)   # string labels — return_sets() needs this, not 0/1/2
-df_cog['GROUP'] = df_cog['MACRO_GROUP']                       # unused downstream, kept for schema compatibility
-df_cog['SEX'] = df_cog['MALE']                                 # unused downstream
-
-df = df.merge(df_cog[['IMAGE_DATA_ID','SUBJECT','GROUP','MACRO_GROUP','SEX','AGE']], on='IMAGE_DATA_ID', how='left')
-df = df[df['IMAGE_PATH'].apply(os.path.exists)].reset_index(drop=True)   # drop the 7 genuinely-missing files — note 3
-df.to_csv('data/reference/PREPROCESSED_MRI_REFERENCE.csv', index=False)
-```
-
-Result: 7287 rows (7294 after concat/dedup, minus the 7 missing files), only 2 with no cognitive-data
-match (`MACRO_GROUP`/`SUBJECT` null — negligible).
-
----
+**The old multi-folder concat is obsolete.** The prior run's Step 5b concatenated three bad-atlas folders
+(`20260707/08/09`) newest-first to dedup a corrupted-then-reprocessed batch, and dropped 7 genuinely-missing
+files. The **atlas-fixed `20260722` run is a single clean folder — 7279 images, 0 duplicate IDs, 0 missing
+files, 0 unmatched labels** (verified), so none of that machinery is needed. `run_slice_preparation.py`
+reads the one folder, joins the labels, and still applies the `os.path.exists` guard defensively.
 
 ## Step 6 — Ensemble reference
 
@@ -178,107 +156,55 @@ Result (post-fix): train 861 / validation 455 / test 446 (1762 rows total — a 
 This `DATASET` column (train/validation/test, subject-level, seed 151) is fixed across every model
 built from here on — CNNs, cognitive model, and ensemble.
 
-## Step 8 — 2D slices: only what's actually needed
+## Step 8 — 2D slices ([run_slice_preparation.py](../../src/data_preparation/run_slice_preparation.py))
+
+Steps 5b + 8 are folded into one runner. Launch it in the background (from the repo root):
+
+```bash
+cd /home/lucasthim/projects/phd/mmml-alzheimer-diagnosis
+nohup uv run python -u src/data_preparation/run_slice_preparation.py \
+    > data/mri/experiments/slice_prep_$(date +%Y%m%d_%H%M).log 2>&1 &
+```
 
 The full 100-slice-per-orientation sweep was the historical *slice search*; the dissertation already
-resolved which slices to use, so there's no need to repeat it:
+resolved which slices to use, so the runner cuts only those 6:
 
 - **AD (ADxCN):** coronal 43, axial 23, sagittal 26
 - **MCI (MCIxCN):** coronal 70, axial 8, sagittal 50
 
-Fix the inverted zero-pad bug first
-([mri_batch_preparation.py:208](../../src/data_preparation/mri_batch_preparation.py#L208)) — otherwise
-filenames come out as `coronal_070.npz` instead of `coronal_70.npz`. Already applied this session
-(`slice['SLICE'] >= 10` instead of `< 10`).
+**One combined call, one list of indices per orientation key.** `generate_slices`
+([mri_batch_preparation.py:132](../../src/data_preparation/mri_batch_preparation.py#L132)) calls the
+expensive `load_mri` once per `(image, orientation)` pair, then cuts *every* index in that orientation's
+list from the same loaded volume. Combining AD's and MCI's index per orientation —
+`{'coronal': [43, 70], 'axial': [23, 8], 'sagittal': [26, 50]}` — loads each volume 3 times (once per
+orientation) instead of 6, halving ANTs loads (~21.9k for ~7279 images). Unique dict keys also sidestep
+the duplicate-dict-key bug at [mri_batch_preparation.py:20-26](../../src/data_preparation/mri_batch_preparation.py#L20-L26)
+(that bug was writing `'coronal'` twice as separate entries; one key holding a list is what it was
+trying to express).
 
-**Best: one call total, one list of slice indices per orientation key** — not one call per orientation,
-and not even one call per diagnosis class. `generate_slices` ([mri_batch_preparation.py:132](../../src/data_preparation/mri_batch_preparation.py#L132))
-calls the expensive `load_mri` exactly once per `(image, orientation)` pair, then slices out *every*
-index in that orientation's list from the same loaded volume. So combining AD's and MCI's index for the
-same orientation into one list —
-`{'coronal': [43, 70], 'axial': [23, 8], 'sagittal': [26, 50]}` — loads each 3D volume 3 times total
-(once per orientation) instead of 6 (3 orientations × 2 separate class-scoped calls), halving total
-ANTs image loads (~21.9k vs ~43.7k for ~7287 images). This does **not** hit the duplicate-dict-key bug
-in [mri_batch_preparation.py:20-26](../../src/data_preparation/mri_batch_preparation.py#L20-L26) —
-that bug is from writing the *same key* (`'coronal'`) twice as separate entries in one dict literal
-(Python silently keeps only the last one); a single key holding a list of multiple indices is exactly
-the pattern that bug was trying (and failing) to express in the first place:
+**In-code fixes already applied** (verified present in the current source, so no manual patch needed):
 
-```python
-import sys; sys.path.insert(0, 'src/data_preparation')
-from mri_batch_preparation import execute_mri_batch_preparation
+1. **Zero-pad** ([:208](../../src/data_preparation/mri_batch_preparation.py#L208)) — `slice['SLICE'] >= 10`
+   (not `< 10`), so filenames are `coronal_70.npz`, not `coronal_070.npz`.
+2. **Return value** ([:101](../../src/data_preparation/mri_batch_preparation.py#L101)) — returns
+   `mri_reference_path+reference_file_name` (where the file is actually written, `data/reference/`), not
+   the old `output_path+...` which pointed at a nonexistent path and raised `FileNotFoundError` when
+   captured.
+3. **Step 7 leakage fix** — the ensemble-reference merge ([:92](../../src/data_preparation/mri_batch_preparation.py#L92))
+   fans out rows if `IMAGE_DATA_ID` isn't unique in `PROCESSED_ENSEMBLE_REFERENCE.csv`. Step 7's
+   label-scoped split fix means it's now unique (0 duplicates), so no fan-out.
 
-out = execute_mri_batch_preparation(
-    mri_reference_path='data/reference/PREPROCESSED_MRI_REFERENCE.csv',
-    ensemble_reference_path='data/tabular/PROCESSED_ENSEMBLE_REFERENCE.csv',
-    output_path='data/mri/processed/storage/',
-    orientations={'coronal': [43, 70], 'axial': [23, 8], 'sagittal': [26, 50]})  # AD + MCI slices combined
-```
+**DATASET backfill (`backfill_dataset_and_write_master`).** Only ~1762 of the 7279 sliced images get a
+`DATASET` from the ensemble reference — the rest merge to `NaN`, because `PROCESSED_ENSEMBLE_REFERENCE.csv`
+covers only subjects with *complete* cognitive data (Step 6's `dropna()`), and that skews by diagnosis
+(AD patients more often have incomplete batteries). The runner sets `DATASET='train'` on every `NaN` row
+that has a `MACRO_GROUP`, giving the CNN its full training cohort; `validation`/`test` are untouched, so
+the CNN, cognitive, and ensemble models still share one evaluation set. (`return_sets()` already treated
+`NaN` as "not validation/test" → train, so this only makes the implicit behavior explicit.) The runner
+then writes `PROCESSED_MRI_REFERENCE_ALL_ORIENTATIONS_<ts>.csv` — the training master; point
+[train_all_cnns.py](../../src/model_training/train_all_cnns.py)'s `MRI_REFERENCE` at it.
 
-This run actually used two calls (one dict per class, not the fully-combined version above — the
-combined pattern was worked out only after this run was already partway through) — harmless but ~2x
-slower than necessary; documented here so the next re-run uses the better version.
-
-**Bug found while running this: the function's return value points at the wrong file.**
-[mri_batch_preparation.py:101](../../src/data_preparation/mri_batch_preparation.py#L101) *saves* the
-output CSV at `mri_reference_path`'s directory (e.g. `data/reference/`), but the function used to
-*return* `output_path + reference_file_name` (e.g. `data/mri/processed/storage/...`) — a different,
-nonexistent path. Fixed to return `mri_reference_path+reference_file_name`, matching where the file is
-actually written. If you concat outputs by capturing the return value (as below), this bug means
-`pd.read_csv(out)` raises `FileNotFoundError` — the file is one directory up, in `data/reference/`.
-
-**Bug found while running this: the ensemble-reference merge fans out rows if `IMAGE_DATA_ID` isn't
-unique in it.** [mri_batch_preparation.py:92](../../src/data_preparation/mri_batch_preparation.py#L92)
-does `df_mri_processed_reference.merge(df_ensemble_reference[['IMAGE_DATA_ID','DATASET']], how='left')`
-— if the Step 7 leakage bug (see Step 7 above) hasn't been fixed yet, duplicate `IMAGE_DATA_ID` rows in
-the ensemble reference fan out into duplicate slice rows here too, inheriting the same contradictory
-`DATASET` values. Fix Step 7 first; if you've already run Step 8 against a since-fixed ensemble
-reference, you don't need to redo the (expensive) slicing — the per-image slice data doesn't depend on
-the ensemble reference at all, only the `DATASET` column does. Cheaper recovery: dedupe the existing
-per-class output CSVs down to one row per `(IMAGE_DATA_ID, ORIENTATION, SLICE)`, drop the (possibly
-contradictory) `DATASET` column, and re-merge against the corrected `PROCESSED_ENSEMBLE_REFERENCE.csv`:
-
-```python
-import pandas as pd
-key_cols = ['IMAGE_DATA_ID','ORIENTATION','SLICE']
-df_ens = pd.read_csv('data/tabular/PROCESSED_ENSEMBLE_REFERENCE.csv')
-df_ens['IMAGE_DATA_ID'] = 'I' + df_ens['IMAGEUID'].astype(str)
-
-frames = []
-for path in [...]:  # the per-class PROCESSED_MRI_REFERENCE_<ts>.csv outputs
-    df = pd.read_csv(path)
-    df = df[[c for c in df.columns if c != 'DATASET']].drop_duplicates(subset=key_cols)
-    frames.append(df.merge(df_ens[['IMAGE_DATA_ID','DATASET']], on='IMAGE_DATA_ID', how='left'))
-
-df_all = pd.concat(frames, ignore_index=True)
-```
-
-**Deliberate extension: give the CNN a larger training cohort than the ensemble uses.** Only 1762 of the
-7287 sliced images have a `DATASET` label — the rest merged to `NaN` because `PROCESSED_ENSEMBLE_REFERENCE.csv`
-only covers subjects with *complete* cognitive test data (Step 6's `dropna()`), and that drop skews by
-diagnosis (in the unfilled data, only 13.1% of AD-labeled rows have a `DATASET` vs 30.4% of CN — AD
-patients more often have incomplete cognitive batteries). `return_sets()`
-([mri_train.py:329](../../src/model_training/mri_train.py#L329)) does
-`df_mri_reference.query("DATASET not in ('validation','test')")` for its train split — pandas treats
-`NaN` as trivially "not in" any list, so **the unlabeled rows were already silently landing in CNN
-training** even without this step. Made that explicit rather than relying on the implicit pandas
-behavior — set `DATASET='train'` on every row that still has no label (validation/test, tied to the
-ensemble's cognitively-complete cohort, are untouched, so the CNN/cognitive/ensemble models still share
-the same evaluation set):
-
-```python
-fillable = df_all['DATASET'].isna() & df_all['MACRO_GROUP'].notna()
-df_all.loc[fillable, 'DATASET'] = 'train'
-```
-
-Result: train jumps from 5148 → 38322 rows (all three classes), validation (2724) and test (2664)
-unchanged. The 12 rows with no `MACRO_GROUP` (2 images × 6 slices, no cognitive-data match at all) stay
-`DATASET`-less — harmless, since `return_sets()` filters to `MACRO_GROUP in [0,1]` after remap regardless.
-
-Runtime note: a single combined call still iterates all ~7287 images in the reference (the AD/MCI slice
-choice doesn't filter which images get included, only which indices get cut per orientation) — expect
-~21.9k ANTs image loads for the combined single-call version (~43.7k for the two-call version this run
-actually used). Either way, run it in the background.
+Runtime: ~21.9k ANTs image loads over 7279 images — long; the background launch above is not optional.
 
 ## Step 9 — CNN training
 

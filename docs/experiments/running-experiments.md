@@ -25,7 +25,7 @@ flowchart TD
     G --> H["Step 5b: mri_metadata_preprocessing (after)<br/>→ PREPROCESSED_MRI_REFERENCE.csv"]
     B --> I["Step 6: ensemble_preprocessing (2026: cognitive-only)<br/>→ PREPROCESSED_ENSEMBLE_REFERENCE.csv"]
     I --> J["Step 7: ensemble_preparation<br/>→ PROCESSED_ENSEMBLE_REFERENCE.csv (DATASET split, seed 151)"]
-    H --> K["Step 8: mri_batch_preparation<br/>3D→2D .npz slices + PROCESSED_MRI_REFERENCE_*.csv"]
+    H --> K["Step 5b+8: run_slice_preparation.py<br/>enrich labels + 3D→2D .npz slices + DATASET backfill"]
     J --> K
     K --> L["Step 9: mri_train (per orientation/slice)<br/>→ .pth weights + PREDICTIONS_*.csv (CNN_SCORE)"]
     J --> M["Step 10: cognitive_tests_train<br/>→ PREDICTIONS_COGNITIVE_TESTS.csv (Score_1 → COGTEST_SCORE)"]
@@ -90,32 +90,33 @@ uv run python src/data_preprocessing/mri_preprocessing.py \
     --output data/mri/preprocessed/$(date +%Y%m%d) \
     -w 3
 
-# 5b. MRI metadata (preprocessed side) — edit the hardcoded REFERENCE.csv list, then import & call
-python -c "import sys; sys.path.insert(0,'src/data_preprocessing'); \
-    from mri_metadata_preprocessing import execute_mri_metadata_preprocessing_after_image_preprocessing as f; f()"
-
 # 6. Ensemble preprocessing — build the ensemble reference  (tracks rejoin)
 #    2026: reads ONLY the cognitive table; no MRI reference needed.
+#    Use 0 1 2 (all classes) so MCI images get a DATASET in the combined slicing below.
 python src/data_preprocessing/ensemble_preprocessing.py \
     --cognitive data/tabular/COGNITIVE_DATA_PREPROCESSED.csv \
     --output data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv \
     --downloaded-mri-reference data/reference/DOWNLOAD_RAW_MRI.csv \
-    --classes 0 1
+    --classes 0 1 2
 
 # 7. Ensemble preparation — assign train / validation / test  ← DATASET split (the milestone)
 python -c "import sys; sys.path.insert(0,'src/data_preparation'); \
     from ensemble_preparation import execute_ensemble_preparation as f; \
-    f('data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv', 'data/tabular/PROCESSED_ENSEMBLE_REFERENCE.csv', classes=[0,1])"
+    f('data/tabular/PREPROCESSED_ENSEMBLE_REFERENCE.csv', 'data/tabular/PROCESSED_ENSEMBLE_REFERENCE.csv', classes=[0,1,2])"
 
-# 8. MRI 3D→2D preparation — slice + augment  (fix the two known bugs first)
-#    Driven from a notebook; execute_mri_batch_preparation(...). See Step 8.
+# 5b + 8. Slice preparation — enrich labels + cut the 6 slices + backfill DATASET  (one runner)
+#    Folds Step 5b (label backfill from cognitive data) into Step 8. Long run -> background it.
+nohup uv run python -u src/data_preparation/run_slice_preparation.py \
+    > data/mri/experiments/slice_prep_$(date +%Y%m%d_%H%M).log 2>&1 &
 ```
 
-> **2026 note — Step 6 no longer depends on Step 5b.** After the `ensemble_preprocessing.py`
-> rewrite, the ensemble reference is built from the cognitive table alone (single diagnosis
-> source), so Step 6 does **not** consume `PREPROCESSED_MRI_REFERENCE.csv`. You still need
-> Step 5b's output for **Step 8** (`mri_batch_preparation`), which reads the preprocessed-MRI
-> metadata. The "at a glance" diagram above still draws the old 5b→6 edge — treat it as 5b→8.
+> **2026 flow — three commands.** The data-gen pipeline collapses to: **(1)** MRI preprocessing →
+> **(2)** ensemble preprocessing + preparation (Steps 6–7, cognitive-derived, atlas-independent) →
+> **(3)** [run_slice_preparation.py](../../src/data_preparation/run_slice_preparation.py), which folds
+> the old Steps **5b + 8** into one runner (enrich labels, cut the 6 slices, backfill `DATASET`). Step
+> 6 no longer consumes a MRI reference (single diagnosis source after the `ensemble_preprocessing.py`
+> rewrite); the enrichment labels come from the cognitive table inside the runner. Full detail and the
+> per-run state: [2026-training-runbook.md](2026-training-runbook.md).
 
 The per-step detail (exact I/O, argument meanings, and the bugs to patch) follows. Steps 9–13
 (training/eval/XAI) begin at [Step 9](#step-9--cnn-training-per-orientation--slice).
@@ -217,15 +218,14 @@ python3 scripts/rebuild_adnimerge_from_adnimerge2.py \
 - **Bug:** `to_csv` here writes without `index=False` → an extra index column ([:52](../../src/data_preparation/ensemble_preparation.py#L52)). Read downstream with `index_col=0` or fix it.
 - **README discrepancy:** **not mentioned in the README.**
 
-## Step 8 — MRI 3D→2D preparation (slice + augment)
+## Step 8 — MRI 3D→2D preparation (slice)
 
-- **Production script / fn:** [mri_batch_preparation.py](../../src/data_preparation/mri_batch_preparation.py) → `execute_mri_batch_preparation(...)` — slices each preprocessed `.nii.gz` into 2D `.npz` per orientation/slice, into per-image folders `<output>/<IMAGE_DATA_ID>/<orient>_<NN>.npz` ([:199-200](../../src/data_preparation/mri_batch_preparation.py#L199)).
-- **In:** `PREPROCESSED_MRI_REFERENCE.csv` (Step 5b) + `PREPROCESSED_ENSEMBLE_REFERENCE.csv` (Step 6, for the `CONFLICT_DIAGNOSIS` filter, [:53-57](../../src/data_preparation/mri_batch_preparation.py#L53)).
-- **Out:** `.npz` slices (key `arr_0`, ~100×100 float) + `PROCESSED_MRI_REFERENCE_<YYYYMMDD_HHMM>.csv` ([:96-101](../../src/data_preparation/mri_batch_preparation.py#L96)). **Rename / concat into the master `PROCESSED_MRI_REFERENCE_ALL_ORIENTATIONS_*.csv`** that training consumes — this concat happens in a notebook.
-- **Two bugs to fix before running** (both detailed in [known-issues.md](../reference/known-issues.md)):
-  - (a) **Duplicate dict keys** in the default `orientations` silently drop the `range(15,36)` axial/sagittal ranges, leaving effective `{coronal:35-65, axial:65-85, sagittal:65-85}` ([:20-26](../../src/data_preparation/mri_batch_preparation.py#L20)).
-  - (b) **Inverted zero-pad** gives filenames like `coronal_050.npz` instead of `coronal_50.npz` ([:208](../../src/data_preparation/mri_batch_preparation.py#L208)).
-- **README discrepancy:** README names the legacy single-config module [mri_preparation.py](../../src/data_preparation/mri_preparation.py) ("mri_preparation"); the production path that training actually consumes is `mri_batch_preparation.py`. The reference-only [mri_metadata_preparation.py](../../src/data_preparation/mri_metadata_preparation.py) is a third, superseded variant. (README step 6.)
+- **Runner:** [run_slice_preparation.py](../../src/data_preparation/run_slice_preparation.py) — folds Step 5b (label backfill) + Step 8 (slicing) + `DATASET` backfill into one background job. It calls [mri_batch_preparation.py](../../src/data_preparation/mri_batch_preparation.py) → `execute_mri_batch_preparation(...)`, which slices each `.nii.gz` into 2D `.npz` per orientation/slice under `<output>/<IMAGE_DATA_ID>/<orient>_<NN>.npz` ([:199-200](../../src/data_preparation/mri_batch_preparation.py#L199)). Full per-run detail: [2026-training-runbook.md § Step 8](2026-training-runbook.md).
+- **In:** the preprocessing `REFERENCE.csv` (enriched in-runner with labels from `COGNITIVE_DATA_PREPROCESSED.csv`) + `PROCESSED_ENSEMBLE_REFERENCE.csv` (Step 7, for the `CONFLICT_DIAGNOSIS` filter **and** the `DATASET` merge, [:53-57,92](../../src/data_preparation/mri_batch_preparation.py#L53)).
+- **Out:** `.npz` slices (key `arr_0`, ~100×100 float) + `PROCESSED_MRI_REFERENCE_<ts>.csv`, which the runner then `DATASET`-backfills and writes as the master `PROCESSED_MRI_REFERENCE_ALL_ORIENTATIONS_<ts>.csv` that training consumes.
+- **Slices cut** (dissertation-resolved, one combined call): AD `coronal 43, axial 23, sagittal 26`; MCI `coronal 70, axial 8, sagittal 50` → `{'coronal':[43,70],'axial':[23,8],'sagittal':[26,50]}`. Unique dict keys avoid the duplicate-key bug.
+- **In-code bug fixes** (already applied in the current source — verified): the zero-pad ([:208](../../src/data_preparation/mri_batch_preparation.py#L208)) and the return-value path ([:101](../../src/data_preparation/mri_batch_preparation.py#L101)). See the runbook for details.
+- **README discrepancy:** README names the legacy single-config module [mri_preparation.py](../../src/data_preparation/mri_preparation.py) ("mri_preparation"); the production path is `mri_batch_preparation.py` (wrapped by `run_slice_preparation.py`). The reference-only [mri_metadata_preparation.py](../../src/data_preparation/mri_metadata_preparation.py) is a third, superseded variant. (README step 6.)
 
 ## Step 9 — CNN training (per orientation / slice)
 
@@ -279,7 +279,7 @@ These crash or silently corrupt a fresh modern run. Patch them first. Every entr
 | 2 | **No central config / no runner** — [experiment_config.json](../../src/experiment/experiment_config.json) is an empty stub, [run.py](../../src/experiment/run.py) `run()` is `pass`, [src/run/](../../src/run/) files are 0 bytes | `src/experiment/`, `src/run/` | Don't expect one-command runs; import and call functions directly |
 | 3 | **Broken CLI** — `mri_metadata_preprocessing.py` crashes as `__main__` (`mri_selection.py` and `mri_preprocessing.py` are **fixed**) | [mri_metadata_preprocessing.py:122-124](../../src/data_preprocessing/mri_metadata_preprocessing.py#L122) | Import and call `execute_mri_metadata_preprocessing_*` directly |
 | 4 | **`mri_batch_preparation` dict-key collision** — duplicate `axial`/`sagittal` keys drop the `range(15,36)` ranges | [mri_batch_preparation.py:20-26](../../src/data_preparation/mri_batch_preparation.py#L20) | Use a list of `(orient, range)` tuples so both ranges survive |
-| 5 | **Inverted zero-pad** — slice filenames get a spurious leading zero (`coronal_050.npz`) | [mri_batch_preparation.py:208](../../src/data_preparation/mri_batch_preparation.py#L208) | Flip the condition (`< 10` should be the padded branch) |
+| 5 | ~~**Inverted zero-pad**~~ — **fixed** in current source (`>= 10` branch); filenames are `coronal_70.npz` | [mri_batch_preparation.py:208](../../src/data_preparation/mri_batch_preparation.py#L208) | No action — already correct |
 | 6 | **CNN default params omit `'loss'`** → `KeyError` if defaults used | [mri_train.py:206-213](../../src/model_training/mri_train.py#L206) | Always pass an explicit `additional_experiment_params` dict including `'loss'` |
 | 7 | **`WeightedFocalLoss` hardcodes `.cuda()`** → crashes on CPU/MPS | [loss.py:10](../../src/models/loss.py#L10) | Use the module `device` instead of `.cuda()` |
 | 8 | **`np.float` removed (NumPy ≥1.24)** → breaks DeLong + `check_auc_difference` | [de_long_evaluation.py:17,25,61-63](../../src/model_evaluation/de_long_evaluation.py#L17) | Replace `np.float` → `np.float64`/`float` |
@@ -316,7 +316,7 @@ The repo `README.md` "Steps to Run Experiments" list is stale. The discrepancies
 6. `mri_metadata_preprocessing` (prior) → `RAW_MRI_REFERENCE.csv`. ([Step 4](#step-4--mri-metadata-preprocessing-raw-side--concat))
 7. `mri_preprocessing.execute_preprocessing(...)` → `preprocessed/<date>/*.nii.gz` + `REFERENCE.csv`; then `mri_metadata_preprocessing` (after) → `PREPROCESSED_MRI_REFERENCE.csv`. ([Steps 5–5b](#step-5--mri-3d-preprocessing-register--skull-strip--crop--standardize))
 8. `ensemble_preprocessing` → `PREPROCESSED_ENSEMBLE_REFERENCE.csv`; `ensemble_preparation` → `PROCESSED_ENSEMBLE_REFERENCE.csv` (DATASET split). ([Steps 6–7](#step-6--ensemble-preprocessing-join-tabular--mri))
-9. `mri_batch_preparation` (fix both bugs) → `.npz` slices + `PROCESSED_MRI_REFERENCE_*.csv`; concat to ALL_ORIENTATIONS. ([Step 8](#step-8--mri-3d2d-preparation-slice--augment))
+9. `run_slice_preparation.py` (folds Step 5b + 8) → `.npz` slices + `PROCESSED_MRI_REFERENCE_ALL_ORIENTATIONS_<ts>.csv`. ([Step 8](#step-8--mri-3d2d-preparation-slice))
 10. `mri_train` (per orientation/slice) → `.pth` + `PREDICTIONS_*.csv` (`CNN_SCORE`). ([Step 9](#step-9--cnn-training-per-orientation--slice))
 11. `cognitive_tests_train` → `PREDICTIONS_COGNITIVE_TESTS.csv` (rename to `COGTEST_SCORE` in notebook). ([Step 10](#step-10--cognitive--tabular-model-training))
 12. `ensemble_train` → fused EBM/LR + `PREDICTIONS_ENSEMBLE.csv`. ([Step 11](#step-11--ensemble-fusion-training))

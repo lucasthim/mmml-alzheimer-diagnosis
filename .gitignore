@@ -137,3 +137,6 @@ dmypy.json
 /models/*
 
 cloudflared*
+
+
+!./data/mri/atlas/atlas_t1.nii*

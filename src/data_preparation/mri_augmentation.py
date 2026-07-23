@@ -169,16 +169,20 @@ def slice_image(image_3d: ants.ANTsImage,orientation,orientation_slice):
     Returns a 2D image.
     
     '''
-    image_3d = image_3d.numpy()
+    image_3d = to_numpy(image_3d)
     if orientation == 'sagittal':
-        rot = np.rot90(image_3d, k=3, axes=(1,2)).copy()
-        rot = np.rot90(rot, k=2, axes=(0,2)).copy()
+        rot = np.rot90(image_3d, k=1, axes=(1,2)).copy()
+        # rot = np.rot90(rot, k=2, axes=(0,2)).copy()
         return rot[orientation_slice,:,:]
     
     elif orientation == 'coronal':
-        rot = np.rot90(image_3d, k=3, axes=(0,2)).copy()
+        rot = np.rot90(image_3d, k=1, axes=(0,2)).copy()
         return rot[:,orientation_slice,:]
     
     elif orientation == 'axial':
-        rot = np.rot90(image_3d, k=3, axes=(0,1)).copy()        
+        rot = np.rot90(image_3d, k=1, axes=(0,1)).copy()        
         return rot[:,:,orientation_slice]
+    
+def to_numpy(img):
+    """ANTsImage or ndarray -> ndarray."""
+    return img.numpy() if hasattr(img, 'numpy') else np.asarray(img)
