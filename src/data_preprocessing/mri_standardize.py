@@ -70,8 +70,16 @@ def clip_image_intensity(image:np.ndarray,lower_threshold,upper_threshold):
     return image
 
 def get_atlas_thresholds(atlas_path = None,lower_bound=0.02,upper_bound=99.8):
+    global atlas_thresholds
     
     if atlas_path is None: return (0.05545412003993988, 92.05744171142578) #for 0.02 and 99.8
+    if atlas_thresholds is not None: 
+        return atlas_thresholds
+    else:
+        atlas_thresholds = get_percentiles(ants.image_read(atlas_path),lower_bound=lower_bound, upper_bound = upper_bound)
+        return atlas_thresholds
 
-    fixed = ants.image_read(atlas_path)
-    return get_percentiles(fixed,lower_bound=lower_bound, upper_bound = upper_bound)
+def _restore_geometry(rebuilt_img, reference_img):
+    """Re-stamp spacing/origin that ants.from_numpy(..., direction=...) silently dropped."""
+    return ants.from_numpy(rebuilt_img.numpy(), spacing=reference_img.spacing,
+                            origin=reference_img.origin, direction=reference_img.direction)

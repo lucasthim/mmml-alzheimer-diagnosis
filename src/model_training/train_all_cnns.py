@@ -1,5 +1,8 @@
 """
-Train VGG19_BN CNNs for ADxCN and MCIxCN across all 3 orientations (coronal, axial, sagittal).
+Train CNNs for ADxCN and MCIxCN across all 3 orientations (coronal, axial, sagittal).
+
+Set MODEL to the architecture you want (e.g. "vgg19_bn", "vgg13", "resnet34"). All output
+filenames derive from MODEL, so switching models NEVER overwrites a previous run's outputs.
 
 Config matches the best-evidenced historical run (notebooks/20211027_Run_CNN_VGG19_for_ensemble.ipynb
 cell 21 / dissertation Table 5.6): lr=0.0001, batch_size=16, Adam, BCE loss, max_epochs=100,
@@ -33,7 +36,11 @@ sys.path.insert(0, os.getcwd())
 from mri_train import run_experiments_for_ensemble
 
 MRI_REFERENCE = os.path.join(REPO_ROOT, "data/reference/PROCESSED_MRI_REFERENCE_ALL_ORIENTATIONS_20260710_1413.csv")
-MODEL = "vgg19_bn"
+
+# The one knob: switch this to re-run every experiment with a different architecture.
+# All output paths below derive from it, so runs never clobber each other.
+MODEL = "vgg13"
+MODEL_TAG = MODEL.upper()   # used in output filenames, e.g. PREDICTIONS_AD_VGG13.csv
 
 MRI_CONFIG_BASE = {
     "num_samples": 0,
@@ -59,20 +66,30 @@ EXPERIMENTS = [
         "name": "ADxCN",
         "classes": ["AD", "CN"],
         "orientation_and_slices": [("coronal", [43]), ("axial", [23]), ("sagittal", [26])],
-        "save_path": os.path.join(REPO_ROOT, "data/PREDICTIONS_AD_VGG19_BN.csv"),
-        "model_path": os.path.join(REPO_ROOT, "models/vgg19_bn_adxcn"),
+        "save_path": os.path.join(REPO_ROOT, f"data/PREDICTIONS_AD_{MODEL_TAG}.csv"),
+        "model_path": os.path.join(REPO_ROOT, f"models/{MODEL}_adxcn"),
     },
     {
         "name": "MCIxCN",
         "classes": ["MCI", "CN"],
         "orientation_and_slices": [("coronal", [70]), ("axial", [8]), ("sagittal", [50])],
-        "save_path": os.path.join(REPO_ROOT, "data/PREDICTIONS_MCI_VGG19_BN.csv"),
-        "model_path": os.path.join(REPO_ROOT, "models/vgg19_bn_mcixcn"),
+        "save_path": os.path.join(REPO_ROOT, f"data/PREDICTIONS_MCI_{MODEL_TAG}.csv"),
+        "model_path": os.path.join(REPO_ROOT, f"models/{MODEL}_mcixcn"),
     },
 ]
 
 
 def main():
+    # Safety net: never silently overwrite a previous run's predictions. If a target
+    # PREDICTIONS_*.csv already exists, stop before training rather than clobber it.
+    existing = [exp["save_path"] for exp in EXPERIMENTS if os.path.exists(exp["save_path"])]
+    if existing:
+        print("REFUSING TO RUN -- these output files already exist (move/rename them first):", flush=True)
+        for p in existing:
+            print(f"   {p}", flush=True)
+        sys.exit(1)
+
+    print(f"MODEL = {MODEL}  ->  outputs tagged {MODEL_TAG}", flush=True)
     for exp in EXPERIMENTS:
         started = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"\n{'=' * 100}", flush=True)
